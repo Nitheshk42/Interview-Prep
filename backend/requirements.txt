@@ -1,0 +1,34 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+bcrypt
+pyjwt
+python-multipart
+numpy<3.0.0
+
+# LangChain core
+langchain
+langchain-community
+langchain-core
+langchain-text-splitters
+zstandard>=0.24.0
+
+# Vector store (same reasoning as the Streamlit app: langchain-chroma uses
+# chromadb.PersistentClient() directly, avoiding the deprecated global-singleton
+# chromadb.Client() tenant-bootstrap bug)
+langchain-chroma==0.2.6
+chromadb>=1.0.20,<2.0.0
+# Linux x86_64 deployment only (no ARM/macOS wheels exist) - main.py should skip importing
+# it gracefully via try/except if missing, same pattern as the Streamlit app.
+pysqlite3-binary; sys_platform == "linux" and platform_machine == "x86_64"
+
+# PDF / Word handling
+pypdf
+docx2txt
+python-docx
+
+# LLM providers
+langchain-groq
+langchain-openai
+
+tiktoken

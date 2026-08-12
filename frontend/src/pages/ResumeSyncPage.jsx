@@ -1,0 +1,334 @@
+import { useState, useEffect, useCallback } from "react";
+import * as api from "../api/client";
+import { useProvider } from "../context/ProviderContext";
+import ChatHistoryPanel from "../components/ChatHistoryPanel";
+import TruncationBanner from "../components/TruncationBanner";
+
+const LEVEL_COLOR = {
+  Expert: "bg-purple-100 text-purple-700",
+  Advanced: "bg-blue-100 text-blue-700",
+  Intermediate: "bg-emerald-100 text-emerald-700",
+  Beginner: "bg-gray-100 text-gray-600",
+};
+
+// Resume Sync: (1) a tool-by-tool experience breakdown so you can state your years/clients per
+// tool without hesitating, and (2) a vendor screening-call simulator against a pasted JD, so
+// you walk into that call already knowing what a vendor will ask and how to answer it in a way
+// that actually satisfies them. Both sides save their generations as reopenable history - the
+// vendor-prep side additionally dedups by JD content on the backend, so pasting a JD you already
+// prepped for reuses the saved answers instead of spending tokens again.
+export default function ResumeSyncPage() {
+  const [tab, setTab] = useState("tools");
+
+  return (
+    <div className="p-6 max-w-6xl mx-auto">
+      <h1 className="text-xl font-medium text-gray-900 mb-1">🎯 Resume Sync</h1>
+      <p className="text-sm text-gray-500 mb-4">
+        Know your own resume cold — a tool-by-tool experience breakdown, plus a vendor screening
+        call simulator built from a real job description.
+      </p>
+
+      <div className="flex gap-2 mb-4 border-b border-gray-200">
+        {[
+          { key: "tools", label: "🧰 Tool Sync" },
+          { key: "vendor", label: "📞 Vendor JD Prep" },
+        ].map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setTab(t.key)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition ${
+              tab === t.key ? "border-accent text-accent" : "border-transparent text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "tools" ? <ToolSyncTab /> : <VendorPrepTab />}
+    </div>
+  );
+}
+
+function ToolSyncTab() {
+  const { provider } = useProvider();
+  const [sessions, setSessions] = useState([]);
+  const [activeSessionId, setActiveSessionId] = useState(null);
+  const [tools, setTools] = useState(null);
+  const [truncated, setTruncated] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const refreshSessions = useCallback(() => {
+    api.listSessions("resume_sync_tools").then(setSessions).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshSessions();
+  }, [refreshSessions]);
+
+  async function handleSync() {
+    setBusy(true);
+    setError("");
+    try {
+      const data = await api.generateToolBreakdown(provider);
+      setTools(data.tools);
+      setTruncated(data.truncated);
+
+      const created = await api.createSession("resume_sync_tools", "Resume sync");
+      setActiveSessionId(created.id);
+      await api.appendSessionMessage(created.id, "Resume sync", data);
+      refreshSessions();
+    } catch (err) {
+      setError(err.message || "Couldn't sync your resume — try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSelectSession(sessionId) {
+    setError("");
+    try {
+      const session = await api.getSession(sessionId);
+      setActiveSessionId(sessionId);
+      const last = session.messages[session.messages.length - 1];
+      setTools(last ? last.response.tools : null);
+      setTruncated(last ? last.response.truncated : false);
+    } catch (err) {
+      setError(err.message || "Couldn't load that sync.");
+    }
+  }
+
+  async function handleDeleteSession(sessionId) {
+    try {
+      await api.deleteSession(sessionId);
+      if (sessionId === activeSessionId) {
+        setActiveSessionId(null);
+        setTools(null);
+      }
+      refreshSessions();
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleRenameSession(sessionId, title) {
+    try {
+      await api.renameSession(sessionId, title);
+      refreshSessions();
+    } catch {
+      // ignore
+    }
+  }
+
+  return (
+    <div className="flex -mx-6">
+      <ChatHistoryPanel
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onNewChat={() => { setActiveSessionId(null); setTools(null); }}
+        onSelect={handleSelectSession}
+        onDelete={handleDeleteSession}
+        onRename={handleRenameSession}
+      />
+      <div className="flex-1 px-6">
+        <button
+          type="button"
+          onClick={handleSync}
+          disabled={busy}
+          className="bg-accent text-white rounded-lg px-4 py-2.5 text-sm font-medium hover:brightness-110 transition disabled:opacity-60 mb-4"
+        >
+          {busy ? "🔄 Reading your entire resume..." : "🔄 Sync my resume"}
+        </button>
+
+        {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
+        {truncated && <TruncationBanner />}
+
+        {!tools ? (
+          <p className="text-sm text-gray-400">
+            Click "Sync my resume" to get a tool-by-tool breakdown of your experience — or pick a
+            past sync from the list on the left.
+          </p>
+        ) : (
+          <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-500 text-xs">
+                <tr>
+                  <th className="text-left px-3 py-2">Tool</th>
+                  <th className="text-left px-3 py-2">Experience</th>
+                  <th className="text-left px-3 py-2">Level</th>
+                  <th className="text-left px-3 py-2">Client / Project</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tools.map((t, i) => (
+                  <tr key={i} className={i % 2 ? "bg-white" : "bg-gray-50/50"}>
+                    <td className="px-3 py-2 font-medium text-gray-900">{t.tool}</td>
+                    <td className="px-3 py-2 text-gray-700">{t.experience}</td>
+                    <td className="px-3 py-2">
+                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${LEVEL_COLOR[t.level] || "bg-gray-100 text-gray-600"}`}>
+                        {t.level}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-gray-700">{t.clients.join(", ")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const CATEGORY_STYLE = {
+  "Tool Depth": { emoji: "🛠️", color: "#2196F3" },
+  "Project Scope": { emoji: "📦", color: "#9C27B0" },
+  "Availability": { emoji: "🗓️", color: "#4CAF50" },
+  "Rate": { emoji: "💰", color: "#FF9800" },
+  "Work Authorization": { emoji: "🪪", color: "#607D8B" },
+  "Relocation": { emoji: "✈️", color: "#00838F" },
+  "Gaps": { emoji: "⚠️", color: "#FF5722" },
+  "Motivation": { emoji: "🎯", color: "#3F51B5" },
+};
+
+function VendorPrepTab() {
+  const { provider } = useProvider();
+  const [sessions, setSessions] = useState([]);
+  const [activeSessionId, setActiveSessionId] = useState(null);
+  const [jdText, setJdText] = useState("");
+  const [items, setItems] = useState(null);
+  const [truncated, setTruncated] = useState(false);
+  const [fromCache, setFromCache] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const refreshSessions = useCallback(() => {
+    api.listSessions("resume_sync_qa").then(setSessions).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshSessions();
+  }, [refreshSessions]);
+
+  async function handleGenerate() {
+    if (!jdText.trim()) {
+      setError("Please paste a job description first.");
+      return;
+    }
+    setError("");
+    setBusy(true);
+    try {
+      const data = await api.generateVendorQa({ jdText, provider, numQuestions: 8 });
+      setItems(data.items);
+      setTruncated(data.truncated);
+      setFromCache(data.from_cache);
+      setActiveSessionId(data.session_id);
+      refreshSessions();
+    } catch (err) {
+      setError(err.message || "Couldn't generate vendor Q&A — try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSelectSession(sessionId) {
+    setError("");
+    try {
+      const session = await api.getSession(sessionId);
+      setActiveSessionId(sessionId);
+      const last = session.messages[session.messages.length - 1];
+      setJdText(last ? last.question : "");
+      setItems(last ? last.response.items : null);
+      setTruncated(last ? last.response.truncated : false);
+      setFromCache(true);
+    } catch (err) {
+      setError(err.message || "Couldn't load that chat.");
+    }
+  }
+
+  async function handleDeleteSession(sessionId) {
+    try {
+      await api.deleteSession(sessionId);
+      if (sessionId === activeSessionId) {
+        setActiveSessionId(null);
+        setItems(null);
+        setJdText("");
+      }
+      refreshSessions();
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleRenameSession(sessionId, title) {
+    try {
+      await api.renameSession(sessionId, title);
+      refreshSessions();
+    } catch {
+      // ignore
+    }
+  }
+
+  return (
+    <div className="flex -mx-6">
+      <ChatHistoryPanel
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onNewChat={() => { setActiveSessionId(null); setItems(null); setJdText(""); }}
+        onSelect={handleSelectSession}
+        onDelete={handleDeleteSession}
+        onRename={handleRenameSession}
+      />
+      <div className="flex-1 px-6">
+        <div className="border border-gray-200 rounded-xl p-4 mb-4">
+          <p className="text-sm font-medium text-gray-900 mb-2">Paste the job description the vendor sent</p>
+          <textarea
+            value={jdText}
+            onChange={(e) => setJdText(e.target.value)}
+            placeholder="Paste the job description here..."
+            rows={7}
+            className="w-full border border-gray-300 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
+          />
+          <button
+            type="button"
+            onClick={handleGenerate}
+            disabled={busy}
+            className="w-full mt-3 bg-accent text-white rounded-lg py-2.5 text-sm font-medium hover:brightness-110 transition disabled:opacity-60"
+          >
+            {busy ? "📞 Simulating the vendor screening call..." : "📞 Prep for this vendor call"}
+          </button>
+        </div>
+
+        {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
+        {truncated && <TruncationBanner />}
+
+        {items && (
+          <>
+            {fromCache && (
+              <p className="text-xs text-emerald-700 mb-3">
+                ⚡ Loaded from a previous sync for this exact JD — no tokens spent regenerating it.
+              </p>
+            )}
+            <div className="space-y-3">
+              {items.map((item, idx) => {
+                const meta = CATEGORY_STYLE[item.category] || { emoji: "📌", color: "#607D8B" };
+                return (
+                  <div key={idx} className="rounded-xl p-4 bg-white border-l-4" style={{ borderColor: meta.color, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+                    <span className="text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: meta.color }}>
+                      {meta.emoji} {item.category.toUpperCase()}
+                    </span>
+                    <p className="text-sm font-semibold text-gray-900 mt-2 mb-1.5">🗣️ Vendor: {item.question}</p>
+                    <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">🙋 You: {item.answer}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
