@@ -60,8 +60,21 @@ chat_messages = Table(
 def init_db():
     """Creates every table that doesn't exist yet, on either backend. Call once at app startup
     (see app/main.py) instead of on every request - avoids the DDL round-trip per query that the
-    old sqlite3-per-call get_conn() pattern used to do."""
-    _metadata.create_all(_engine)
+    old sqlite3-per-call get_conn() pattern used to do.
+
+    Gunicorn boots multiple worker processes, and each one runs this on startup against the same
+    database file/instance. On a cold start (fresh, empty DB) two workers can both see "table
+    doesn't exist yet" and both issue CREATE TABLE at nearly the same moment - one wins, the other
+    gets an "already exists" OperationalError even though create_all() itself already checks
+    first. That's a benign race, not a real failure (gunicorn just respawns the worker and it
+    succeeds against the now-existing tables), so it's swallowed here instead of crashing the
+    worker boot."""
+    try:
+        _metadata.create_all(_engine)
+    except Exception as exc:
+        if "already exists" in str(exc).lower():
+            return
+        raise
 
 
 def _now() -> str:
