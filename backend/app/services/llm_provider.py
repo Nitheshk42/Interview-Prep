@@ -10,10 +10,11 @@ PROVIDERS = {
     # so Gemini is a genuinely useful backup once Groq's daily cap is hit, not a duplicate of
     # the same limit. Groq: ~1K requests/day + 100K tokens/day on llama-3.3-70b. Gemini: 20
     # requests/day PER MODEL (aistudio.google.com/usage) but plenty of tokens per request.
+    # Ollama/DeepSeek removed from the selector - not actually wired up for deployed use (Ollama
+    # needs a local machine running it, DeepSeek needs a paid API key) - see get_llm() below,
+    # which still supports both if you ever set them up again, just not exposed in the UI.
     "groq": "Groq (Llama 3.3 70B) — daily free limit",
     "gemini": "Gemini (free tier) — separate daily limit",
-    "ollama": "Ollama (local, free, no limits, slower)",
-    "deepseek": "DeepSeek",
 }
 DEFAULT_PROVIDER = "groq"
 
@@ -38,6 +39,14 @@ def get_llm(provider: str = DEFAULT_PROVIDER, temperature: float = 0.3, max_toke
             api_key=api_key,
             temperature=temperature,
             max_tokens=max_tokens,
+            # Gemini's current Flash models "think" before answering by default, and on the
+            # OpenAI-compatible endpoint those invisible reasoning tokens are drawn from the
+            # SAME max_tokens budget as the visible answer - with a budget sized for a normal
+            # answer (600-1000ish), thinking alone can burn the whole thing before any visible
+            # text comes out, which is exactly what produced answers cut off after a sentence
+            # (and the slowness - thinking adds real latency). This turns thinking off so the
+            # full token budget goes to the actual answer, matching Groq's directness/speed.
+            extra_body={"extra_body": {"google": {"thinking_config": {"thinking_budget": 0}}}},
         )
 
     if provider == "ollama":

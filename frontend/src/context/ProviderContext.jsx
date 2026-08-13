@@ -4,8 +4,6 @@ import { createContext, useContext, useState } from "react";
 export const PROVIDERS = {
   groq: "Groq (Llama 3.3 70B) — daily free limit",
   gemini: "Gemini (free tier) — separate daily limit",
-  ollama: "Ollama (local, free, no limits, slower)",
-  deepseek: "DeepSeek",
 };
 const DEFAULT_PROVIDER = "groq";
 

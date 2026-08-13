@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useProvider, PROVIDERS } from "../context/ProviderContext";
 import * as api from "../api/client";
@@ -12,11 +12,25 @@ import { SECTIONS, PHASE_LABELS } from "../sections";
 export default function Sidebar({ section, onSectionChange }) {
   const { username, profile, logout } = useAuth();
   const { provider, setProvider } = useProvider();
+  const [menuOpen, setMenuOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [feedbackMsg, setFeedbackMsg] = useState("");
   const [reprocessing, setReprocessing] = useState(false);
   const fileInputRef = useRef(null);
+  const menuRef = useRef(null);
+
+  // Close the profile dropdown on an outside click.
+  useEffect(() => {
+    function onClickOutside(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpen(false);
+        setFeedbackOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
 
   async function submitFeedback() {
     if (!feedback.trim()) {
@@ -63,14 +77,58 @@ export default function Sidebar({ section, onSectionChange }) {
 
   return (
     <aside className="w-60 shrink-0 border-r border-gray-200 bg-white p-3 flex flex-col gap-5 min-h-screen">
-      <div className="flex items-center gap-2.5 px-1">
-        <div className="w-8 h-8 rounded-full bg-accent/10 text-accent flex items-center justify-center text-xs font-medium shrink-0">
-          {initials}
-        </div>
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-gray-900 truncate">{username}</p>
-          <p className="text-[11px] text-gray-400">{profile?.level ? `${profile.level} level` : "Level not set"}</p>
-        </div>
+      <div className="relative" ref={menuRef}>
+        <button
+          type="button"
+          onClick={() => setMenuOpen((v) => !v)}
+          className="w-full flex items-center gap-2.5 px-1 py-1 rounded-lg hover:bg-gray-50 transition"
+        >
+          <div className="w-8 h-8 rounded-full bg-accent/10 text-accent flex items-center justify-center text-xs font-medium shrink-0">
+            {initials}
+          </div>
+          <div className="min-w-0 flex-1 text-left">
+            <p className="text-sm font-medium text-gray-900 truncate">{username}</p>
+            <p className="text-[11px] text-gray-400">{profile?.level ? `${profile.level} level` : "Level not set"}</p>
+          </div>
+          <span className="text-gray-400 text-xs shrink-0">{menuOpen ? "▲" : "▼"}</span>
+        </button>
+
+        {menuOpen && (
+          <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg py-1 z-20">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.docx,.doc"
+              onChange={handleReupload}
+              disabled={reprocessing}
+              className="hidden"
+            />
+            <MenuItem icon="📄" label={reprocessing ? "Uploading..." : "Upload a different resume"} onClick={() => fileInputRef.current?.click()} disabled={reprocessing} />
+            <MenuItem icon="💬" label="Send feedback" onClick={() => setFeedbackOpen((v) => !v)} />
+            {feedbackOpen && (
+              <div className="px-3 py-2 border-t border-gray-100">
+                <textarea
+                  value={feedback}
+                  onChange={(e) => setFeedback(e.target.value)}
+                  placeholder="What's working, what's not, what would help?"
+                  className="w-full text-xs border border-gray-300 rounded-lg p-2 mb-1.5"
+                  rows={3}
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={submitFeedback}
+                  className="w-full text-xs border border-gray-300 rounded-lg py-1.5 hover:bg-gray-50 transition"
+                >
+                  Submit
+                </button>
+                {feedbackMsg && <p className="text-[11px] text-gray-500 mt-1">{feedbackMsg}</p>}
+              </div>
+            )}
+            <div className="border-t border-gray-100 my-1" />
+            <MenuItem icon="🚪" label="Log out" onClick={logout} />
+          </div>
+        )}
       </div>
 
       <div className="px-1">
@@ -111,53 +169,6 @@ export default function Sidebar({ section, onSectionChange }) {
         )}
       </nav>
 
-      <div className="mt-auto pt-3 border-t border-gray-100 relative">
-        <div className="flex items-center justify-around">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf,.docx,.doc"
-            onChange={handleReupload}
-            disabled={reprocessing}
-            className="hidden"
-          />
-          <IconButton
-            label="Upload a different resume"
-            icon="📄"
-            onClick={() => fileInputRef.current?.click()}
-            busy={reprocessing}
-          />
-          <IconButton
-            label="Send feedback"
-            icon="💬"
-            onClick={() => setFeedbackOpen((v) => !v)}
-            active={feedbackOpen}
-          />
-          <IconButton label="Log out" icon="🚪" onClick={logout} />
-        </div>
-
-        {feedbackOpen && (
-          <div className="absolute bottom-12 left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg p-3 z-10">
-            <p className="text-xs font-medium text-gray-700 mb-1.5">Send feedback</p>
-            <textarea
-              value={feedback}
-              onChange={(e) => setFeedback(e.target.value)}
-              placeholder="What's working, what's not, what would help?"
-              className="w-full text-xs border border-gray-300 rounded-lg p-2 mb-1.5"
-              rows={3}
-              autoFocus
-            />
-            <button
-              type="button"
-              onClick={submitFeedback}
-              className="w-full text-xs border border-gray-300 rounded-lg py-1.5 hover:bg-gray-50 transition"
-            >
-              Submit
-            </button>
-            {feedbackMsg && <p className="text-[11px] text-gray-500 mt-1">{feedbackMsg}</p>}
-          </div>
-        )}
-      </div>
     </aside>
   );
 }
@@ -179,19 +190,16 @@ function SectionButton({ s, section, onSectionChange }) {
   );
 }
 
-function IconButton({ label, icon, onClick, active, busy }) {
+function MenuItem({ icon, label, onClick, disabled }) {
   return (
     <button
       type="button"
-      title={label}
-      aria-label={label}
       onClick={onClick}
-      disabled={busy}
-      className={`p-1.5 rounded-lg transition text-base disabled:opacity-50 ${
-        active ? "bg-accent/10" : "hover:bg-gray-100"
-      }`}
+      disabled={disabled}
+      className="w-full flex items-center gap-2.5 text-left text-[13px] text-gray-700 px-3 py-2 hover:bg-gray-50 transition disabled:opacity-50"
     >
-      {busy ? "⏳" : icon}
+      <span className="text-base shrink-0">{icon}</span>
+      <span className="truncate">{label}</span>
     </button>
   );
 }

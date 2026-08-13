@@ -312,11 +312,14 @@ Answer:"""
 
 def answer_at_level(vectorstore, question: str, level: str, provider: str = "groq"):
     template = _level_template(level)
-    # Raised from 450 to 650 - four of these run concurrently per question (up to ~2600 output
-    # tokens/question, vs. the old runaway 7200), which still leaves headroom under Groq's
-    # 100K tokens/day free-tier cap for a normal session. The LENGTH RULE above does the real
-    # work of keeping each answer properly elaborated without ballooning; this is just a ceiling.
-    return _answer_with_template(vectorstore, question, template, provider, temperature=0.4, max_tokens=650)
+    # Raised to 800 (was 650, before that 450) - four of these run concurrently per question,
+    # which still leaves headroom under Groq's 100K tokens/day free-tier cap for a normal
+    # session. The LENGTH RULE above does the real work of keeping each answer properly
+    # elaborated without ballooning; this is just a ceiling. (On Gemini specifically, truncation
+    # after only a sentence or two was actually the "thinking" tokens eating the budget before
+    # any visible answer - see llm_provider.py's thinking_budget=0 fix - not this ceiling being
+    # too low.)
+    return _answer_with_template(vectorstore, question, template, provider, temperature=0.4, max_tokens=800)
 
 
 # ===== My JD Answers: paste a JD, get resume-grounded likely interview questions =====
