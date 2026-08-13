@@ -70,6 +70,17 @@ def create_session(payload: CreateSessionRequest, username: str = Depends(get_cu
     return match
 
 
+@router.get("/search", response_model=list[SessionSummary])
+def search_sessions(section: str, q: str, username: str = Depends(get_current_user)):
+    """Matches chat title, any question asked, or any generated answer - substring, case
+    insensitive, no LLM call involved (so it's instant and free, unlike the answers it's
+    searching through)."""
+    _check_section(section)
+    if not q or not q.strip():
+        return db.list_chat_sessions(username, section)
+    return db.search_chat_sessions(username, section, q.strip())
+
+
 @router.get("/{session_id}", response_model=SessionDetail)
 def get_session(session_id: int, username: str = Depends(get_current_user)):
     session = db.get_chat_session(username, session_id)

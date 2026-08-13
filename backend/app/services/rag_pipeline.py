@@ -2,7 +2,7 @@ import re
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from app.services.llm_provider import get_llm
+from app.services.llm_provider import get_llm, invoke_and_check_truncation
 
 _RECENCY_WORDS = re.compile(r"\b(recent|current|latest|most recent|now|present)\b", re.IGNORECASE)
 
@@ -135,7 +135,7 @@ def answer_question(vectorstore, question: str, provider: str = "groq", k: int =
     """Runs retrieval, builds the exact prompt, and calls the LLM step by step (rather than
     through get_rag_chain's internal retriever) so the API response can honestly show the
     caller every stage: what was retrieved, what prompt that became, and what came back.
-    Returns (answer, retrieved, context_text, full_prompt_text)."""
+    Returns (answer, retrieved, context_text, full_prompt_text, truncated)."""
     retrieved = _retrieve(vectorstore, question, k=k)
     docs = [doc for doc, _score in retrieved]
     context_text = format_docs(docs)
@@ -147,7 +147,9 @@ def answer_question(vectorstore, question: str, provider: str = "groq", k: int =
     # (still well below the old runaway 2000 default). This cap is a ceiling against runaway
     # output, not the thing enforcing length - the prompt rule does that.
     llm = get_llm(provider=provider, temperature=0.3, max_tokens=1000)
-    chain = prompt | llm | StrOutputParser()
-    answer = chain.invoke({"context": context_text, "question": question})
+    # Bypasses StrOutputParser (which would discard the response metadata truncation is
+    # detected from) so the caller can tell the user honestly when an answer got cut off by
+    # hitting max_tokens, instead of silently showing a clipped answer as if it were complete.
+    answer, truncated = invoke_and_check_truncation(llm, prompt.format_prompt(context=context_text, question=question))
 
-    return answer, retrieved, context_text, full_prompt_text
+    return answer, retrieved, context_text, full_prompt_text, truncated

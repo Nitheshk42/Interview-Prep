@@ -27,6 +27,7 @@ class HybridSide(BaseModel):
     context: str
     prompt: str
     full_resume_used: bool
+    truncated: bool = False  # True when this answer was cut off by hitting the token limit
 
 
 class HybridChatResponse(BaseModel):
@@ -37,7 +38,7 @@ class HybridChatResponse(BaseModel):
 
 
 def _build_side(vectorstore, question, provider, fn):
-    answer, retrieved, context, prompt = fn(vectorstore, question, provider=provider)
+    answer, retrieved, context, prompt, truncated = fn(vectorstore, question, provider=provider)
     match_pcts = _relative_match_pcts([float(score) for _doc, score in retrieved])
     return HybridSide(
         answer=answer,
@@ -48,6 +49,7 @@ def _build_side(vectorstore, question, provider, fn):
         context=context,
         prompt=prompt,
         full_resume_used=_wants_full_resume(question),
+        truncated=truncated,
     )
 
 

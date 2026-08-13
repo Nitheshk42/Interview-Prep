@@ -25,7 +25,7 @@ class LevelChatResponse(BaseModel):
 
 
 def _build_level_side(vectorstore, question, level, provider):
-    answer, retrieved, context, prompt = answer_at_level(vectorstore, question, level, provider=provider)
+    answer, retrieved, context, prompt, truncated = answer_at_level(vectorstore, question, level, provider=provider)
     match_pcts = _relative_match_pcts([float(score) for _doc, score in retrieved])
     return HybridSide(
         answer=answer,
@@ -36,6 +36,7 @@ def _build_level_side(vectorstore, question, level, provider):
         context=context,
         prompt=prompt,
         full_resume_used=_wants_full_resume(question),
+        truncated=truncated,
     )
 
 

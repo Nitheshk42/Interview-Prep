@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import * as api from "../api/client";
 import { useProvider } from "../context/ProviderContext";
 import MicButton from "../components/MicButton";
 import ChatHistoryPanel from "../components/ChatHistoryPanel";
+import TruncationBanner from "../components/TruncationBanner";
 
 const SECTION = "chat";
 
@@ -24,6 +25,13 @@ export default function ChatPage() {
   const [lastResult, setLastResult] = useState(null); // { retrieved, context, prompt, answer, question }
   const [showFullPrompt, setShowFullPrompt] = useState(false);
   const [error, setError] = useState("");
+  const bottomRef = useRef(null);
+
+  // Jump straight to the newest question/answer whenever the thread changes, instead of
+  // leaving the user to scroll down and hunt for what they just asked.
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages]);
 
   const refreshSessions = useCallback(() => {
     api.listSessions(SECTION).then(setSessions).catch(() => {});
@@ -80,6 +88,15 @@ export default function ChatPage() {
     }
   }
 
+  async function handleSearch(query) {
+    try {
+      const results = query.trim() ? await api.searchSessions(SECTION, query.trim()) : await api.listSessions(SECTION);
+      setSessions(results);
+    } catch {
+      // ignore
+    }
+  }
+
   async function sendQuestion(raw) {
     const question = (raw || "").trim();
     if (!question || busy) return;
@@ -124,13 +141,16 @@ export default function ChatPage() {
         onSelect={handleSelectSession}
         onDelete={handleDeleteSession}
         onRename={handleRenameSession}
+        onSearch={handleSearch}
       />
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6 max-w-6xl mx-auto flex-1">
-        <div className="lg:col-span-2 flex flex-col">
-        <h1 className="text-xl font-medium text-gray-900 mb-1">💬 StudySage Chat</h1>
-        <p className="text-sm text-gray-500 mb-4">Ask questions about your processed resume</p>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6 max-w-6xl mx-auto flex-1 h-[calc(100vh-2rem)]">
+        <div className="lg:col-span-2 flex flex-col h-full min-h-0">
+        <h1 className="text-xl font-medium text-gray-900 mb-1 shrink-0">💬 StudySage Chat</h1>
+        <p className="text-sm text-gray-500 mb-4 shrink-0">Ask questions about your processed resume</p>
 
-        <div className="flex-1 border border-gray-200 rounded-xl p-4 space-y-3 min-h-[400px] max-h-[500px] overflow-y-auto bg-white">
+        {/* Message list is the only thing that scrolls - the input bar below stays pinned at
+            the bottom of the panel instead of drifting wherever the page happens to end. */}
+        <div className="flex-1 min-h-0 border border-gray-200 rounded-xl p-4 space-y-3 overflow-y-auto bg-white">
           {messages.length === 0 && (
             <p className="text-sm text-gray-400">Ask anything about your resume to get started.</p>
           )}
@@ -146,11 +166,13 @@ export default function ChatPage() {
             </div>
           ))}
           {busy && <p className="text-sm text-gray-400">🔍 Processing...</p>}
+          {!busy && lastResult?.truncated && <TruncationBanner variant="single" compact />}
+          <div ref={bottomRef} />
         </div>
 
-        {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
+        {error && <p className="text-sm text-red-600 mt-2 shrink-0">{error}</p>}
 
-        <form onSubmit={handleSend} className="mt-3 flex gap-2">
+        <form onSubmit={handleSend} className="mt-3 flex gap-2 shrink-0">
           <input
             type="text"
             value={input}
@@ -176,7 +198,7 @@ export default function ChatPage() {
         </form>
       </div>
 
-      <div className="max-h-[calc(500px+96px)] overflow-y-auto">
+      <div className="h-full overflow-y-auto">
         <h2 className="text-sm font-medium text-gray-900 mb-1">🤖 How this answer was generated</h2>
         {!lastResult ? (
           <p className="text-sm text-gray-400 mt-2">💭 Ask a question to see the pipeline here...</p>

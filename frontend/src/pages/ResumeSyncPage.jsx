@@ -122,6 +122,17 @@ function ToolSyncTab() {
     }
   }
 
+  async function handleSearch(query) {
+    try {
+      const results = query.trim()
+        ? await api.searchSessions("resume_sync_tools", query.trim())
+        : await api.listSessions("resume_sync_tools");
+      setSessions(results);
+    } catch {
+      // ignore
+    }
+  }
+
   return (
     <div className="flex -mx-6">
       <ChatHistoryPanel
@@ -131,6 +142,7 @@ function ToolSyncTab() {
         onSelect={handleSelectSession}
         onDelete={handleDeleteSession}
         onRename={handleRenameSession}
+        onSearch={handleSearch}
       />
       <div className="flex-1 px-6">
         <button
@@ -272,6 +284,17 @@ function VendorPrepTab() {
     }
   }
 
+  async function handleSearch(query) {
+    try {
+      const results = query.trim()
+        ? await api.searchSessions("resume_sync_qa", query.trim())
+        : await api.listSessions("resume_sync_qa");
+      setSessions(results);
+    } catch {
+      // ignore
+    }
+  }
+
   return (
     <div className="flex -mx-6">
       <ChatHistoryPanel
@@ -281,6 +304,7 @@ function VendorPrepTab() {
         onSelect={handleSelectSession}
         onDelete={handleDeleteSession}
         onRename={handleRenameSession}
+        onSearch={handleSearch}
       />
       <div className="flex-1 px-6">
         <div className="border border-gray-200 rounded-xl p-4 mb-4">

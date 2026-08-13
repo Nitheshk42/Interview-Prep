@@ -3,6 +3,7 @@ import * as api from "../api/client";
 import { useProvider } from "../context/ProviderContext";
 import MicButton from "../components/MicButton";
 import ChatHistoryPanel from "../components/ChatHistoryPanel";
+import TruncationBanner from "../components/TruncationBanner";
 
 const SECTION = "level";
 
@@ -72,6 +73,15 @@ export default function LevelChatPage() {
     }
   }
 
+  async function handleSearch(query) {
+    try {
+      const results = query.trim() ? await api.searchSessions(SECTION, query.trim()) : await api.listSessions(SECTION);
+      setSessions(results);
+    } catch {
+      // ignore
+    }
+  }
+
   async function sendQuestion(raw) {
     const question = (raw || "").trim();
     if (!question || busy) return;
@@ -111,6 +121,7 @@ export default function LevelChatPage() {
         onSelect={handleSelectSession}
         onDelete={handleDeleteSession}
         onRename={handleRenameSession}
+        onSearch={handleSearch}
       />
       <div className="p-6 max-w-6xl mx-auto flex-1">
         <h1 className="text-xl font-medium text-gray-900 mb-1">🪜 My EXP Level Answers</h1>
@@ -179,6 +190,7 @@ function LevelCard({ level, side }) {
         <p className={`text-sm font-bold ${meta.text}`}>{meta.emoji} {level}</p>
         <p className="text-[11px] text-gray-500">{meta.desc}</p>
       </div>
+      {side.truncated && <TruncationBanner variant="single" compact />}
       <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 text-sm text-gray-800 whitespace-pre-wrap">
         {side.answer}
       </div>

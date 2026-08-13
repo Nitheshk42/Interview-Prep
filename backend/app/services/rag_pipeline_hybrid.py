@@ -189,7 +189,8 @@ Answer:"""
 def _answer_with_template(vectorstore, question: str, template: str, provider: str, temperature: float, max_tokens: int, k: int = 15):
     """Same step-by-step pattern as rag_pipeline.answer_question: retrieve, build the exact
     prompt by hand, then call the LLM - so the caller can honestly show what was retrieved
-    and what was sent, not just the final answer."""
+    and what was sent, not just the final answer. Returns (answer, retrieved, context_text,
+    full_prompt_text, truncated)."""
     retrieved = _retrieve(vectorstore, question, k=k)
     docs = [doc for doc, _score in retrieved]
     context_text = format_docs(docs)
@@ -198,10 +199,11 @@ def _answer_with_template(vectorstore, question: str, template: str, provider: s
     full_prompt_text = prompt.format(context=context_text, question=question)
 
     llm = get_llm(provider=provider, temperature=temperature, max_tokens=max_tokens)
-    chain = prompt | llm | StrOutputParser()
-    answer = chain.invoke({"context": context_text, "question": question})
+    # Bypasses StrOutputParser so the caller can tell when an answer was cut off by hitting
+    # max_tokens, instead of silently showing a clipped answer as if it were complete.
+    answer, truncated = invoke_and_check_truncation(llm, prompt.format_prompt(context=context_text, question=question))
 
-    return answer, retrieved, context_text, full_prompt_text
+    return answer, retrieved, context_text, full_prompt_text, truncated
 
 
 def answer_resume_fact(vectorstore, question: str, provider: str = "groq"):
@@ -407,12 +409,18 @@ QUESTION STYLE: Phrase each question the way a real interviewer would say it out
 the actual company/project/technology from the resume where relevant — e.g. "Walk me through
 the Kafka producer you built at Wells Fargo" rather than "Describe your experience with Kafka."
 
-ANSWER STYLE: Write the answer as a flowing first-person narrative (not bullet points), the way
-the candidate would actually say it in an interview, in 3-5 sentences. Carry over any concrete
+ANSWER STYLE: Write the answer as a flowing first-person narrative (not bullet points) - you ARE
+the candidate speaking, never an AI describing someone else's background. Carry over any concrete
 numbers, config values, tool versions, or metrics from the resume VERBATIM — never smooth them
 into vague phrases. If the resume doesn't have that level of detail for a given point, don't
 invent it; keep the answer honest about what's actually there. No throat-clearing, no restating
 the question - every sentence should carry a specific fact.
+
+AUTHENTICITY RULE: Never open with generic soft-skill filler ("I'm a dedicated professional with
+strong communication skills") - it proves nothing and every candidate's answer would sound
+identical without it. Use ownership language ("I built," "I owned," "I decided") over passive
+team-speak, and a natural situation-action-result shape. If it reads like it could be skimmed and
+forgotten, or like something any candidate in this field could have said, it has failed.
 
 For EACH question, output in this EXACT format (use "---" as a separator between questions, no extra text):
 

@@ -13,10 +13,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
-# Cloud Run's filesystem is writable but ephemeral - point app data at /tmp so it's always
-# writable regardless of how the container is deployed. Durable state lives in Cloud SQL +
-# Cloud Storage (see app/db.py and app/services/gcs_storage.py), so this being ephemeral is fine.
-ENV APP_DATA_DIR=/tmp/data
+# Both Cloud Run's and Render's container filesystems are writable but ephemeral - app data
+# resets on redeploy/cold start either way (durable state, where configured, lives in Cloud SQL +
+# Cloud Storage - see app/db.py and app/services/gcs_storage.py). Deliberately NOT using /tmp:
+# some sandboxed container runtimes (observed on Render) give /tmp inconsistent enough file-
+# identity semantics that SQLite - which Chroma uses internally - trips its READONLY_DBMOVED
+# safety check and refuses to write, even though the directory is genuinely writable. A plain
+# directory under the app's own working directory doesn't have this problem on either platform.
+RUN mkdir -p /app/data
+ENV APP_DATA_DIR=/app/data
 ENV PORT=8080
 
 EXPOSE 8080

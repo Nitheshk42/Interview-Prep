@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import * as api from "../api/client";
 import { useProvider } from "../context/ProviderContext";
 import MicButton from "../components/MicButton";
 import ChatHistoryPanel from "../components/ChatHistoryPanel";
+import TruncationBanner from "../components/TruncationBanner";
 
 const SECTION = "hybrid";
 
@@ -25,6 +26,13 @@ export default function HybridChatPage() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const bottomRef = useRef(null);
+
+  // Jump straight to the newest question whenever the thread changes, instead of leaving the
+  // user to scroll down and hunt for what they just asked.
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [history]);
 
   const refreshSessions = useCallback(() => {
     api.listSessions(SECTION).then(setSessions).catch(() => {});
@@ -70,6 +78,15 @@ export default function HybridChatPage() {
     }
   }
 
+  async function handleSearch(query) {
+    try {
+      const results = query.trim() ? await api.searchSessions(SECTION, query.trim()) : await api.listSessions(SECTION);
+      setSessions(results);
+    } catch {
+      // ignore
+    }
+  }
+
   async function sendQuestion(raw) {
     const question = (raw || "").trim();
     if (!question || busy) return;
@@ -109,24 +126,28 @@ export default function HybridChatPage() {
         onSelect={handleSelectSession}
         onDelete={handleDeleteSession}
         onRename={handleRenameSession}
+        onSearch={handleSearch}
       />
-      <div className="p-6 max-w-6xl mx-auto flex-1">
-        <h1 className="text-xl font-medium text-gray-900 mb-1">🔀 Hybrid Chat</h1>
-        <p className="text-sm text-gray-500 mb-4">
+      <div className="p-6 max-w-6xl mx-auto flex-1 h-[calc(100vh-2rem)] flex flex-col min-h-0">
+        <h1 className="text-xl font-medium text-gray-900 mb-1 shrink-0">🔀 Hybrid Chat</h1>
+        <p className="text-sm text-gray-500 mb-4 shrink-0">
           Real routing decision + two independently generated answers, so you always have an
           interview-ready technical answer alongside the resume-grounded one.
         </p>
 
-        <div className="space-y-6">
+        {/* Only this turn list scrolls - the input bar below stays pinned at the bottom of the
+            panel instead of drifting wherever the page happens to end. */}
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-6 pr-1">
           {history.map((turn, i) => (
             <TurnCard key={i} turn={turn} />
           ))}
           {busy && <p className="text-sm text-gray-400">🧭 Routing question and generating both answers...</p>}
+          <div ref={bottomRef} />
         </div>
 
-        {error && <p className="text-sm text-red-600 mt-4">{error}</p>}
+        {error && <p className="text-sm text-red-600 mt-2 shrink-0">{error}</p>}
 
-        <form onSubmit={handleSend} className="mt-6 flex gap-2 sticky bottom-4 bg-white">
+        <form onSubmit={handleSend} className="mt-3 flex gap-2 shrink-0">
           <input
             type="text"
             value={input}
@@ -186,6 +207,7 @@ function SideAnswer({ emoji, title, subtitle, color, side }) {
         <p className={`text-sm font-bold ${text}`}>{emoji} {title}</p>
         <p className="text-[11px] text-gray-500">{subtitle}</p>
       </div>
+      {side.truncated && <TruncationBanner variant="single" compact />}
       <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 text-sm text-gray-800 whitespace-pre-wrap">
         {side.answer}
       </div>

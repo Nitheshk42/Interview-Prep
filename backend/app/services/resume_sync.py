@@ -98,18 +98,31 @@ in a fixed order:
 - Gaps or transitions between roles, if any are visible in the resume
 - Why looking to move / why this opportunity
 
-For EACH question, write the ANSWER the way the CANDIDATE should actually say it on the call -
-first person, confident, specific, grounded in the resume wherever the resume supports it. A
-vendor is satisfied by: real client/project names, real tool names, real durations, and direct
-concrete answers - never vague hedging ("I have some experience with...") and never a fabricated
-claim the resume doesn't support. If the JD asks about something the resume doesn't clearly show,
-the honest answer should acknowledge that plainly and pivot to the closest real transferable
-experience - a vendor screening a gap dishonestly is worse than a vendor screening an honest "I
-haven't used X directly, but I've done Y which is closely related."
+For EACH question, write the ANSWER the way the CANDIDATE should actually say it out loud on the
+call - you ARE the candidate, speaking naturally in first person, never an AI describing someone
+else's background. Read it back to yourself before finalizing: if a sentence sounds like it came
+from a resume summary or an AI narrating a third party ("The candidate has experience with...",
+"They worked on..."), rewrite it the way a real person actually talks on a phone screen -
+contractions, natural phrasing, not stiff or formal.
+
+AUTHENTICITY RULE: Never open an answer with generic soft-skill filler ("I'm a dedicated
+professional with strong communication skills") - a vendor has heard that a thousand times and it
+proves nothing. Ground every answer in specifics: real client/project names, real tool names,
+real durations, real numbers/scale wherever the resume has them.
+
+RECRUITER LENS: A vendor is satisfied by ownership language ("I built," "I owned," "I ran") over
+passive team-speak, a concrete situation-action-result shape, and direct answers with zero
+hedging ("I have some experience with..." fails - "I used it for about a year and a half at
+Verizon" passes). Never a fabricated claim the resume doesn't support. If the JD asks about
+something the resume doesn't clearly show, the honest answer should acknowledge that plainly and
+pivot to the closest real transferable experience - a vendor screening a gap dishonestly is worse
+than a vendor screening an honest "I haven't used X directly, but I've done Y which is closely
+related."
 
 For availability/rate/visa/relocation questions where the resume has no data, write a generic but
 professional placeholder answer the candidate can adjust (e.g. "I'm available with two weeks
-notice" - clearly framed as adjustable, not fabricated as fact).
+notice" - clearly framed as adjustable, not fabricated as fact), still in natural spoken first
+person, not a form-letter tone.
 
 Respond with each Q&A block in EXACTLY this format, separated by ===, nothing else:
 

@@ -108,6 +108,16 @@ export async function listSessions(section) {
   return handle(res);
 }
 
+// Matches chat title, any question asked, and any generated answer - substring, case
+// insensitive, no LLM call involved.
+export async function searchSessions(section, query) {
+  const res = await fetch(
+    `${API_URL}/sessions/search?section=${encodeURIComponent(section)}&q=${encodeURIComponent(query)}`,
+    { headers: authHeaders() }
+  );
+  return handle(res);
+}
+
 export async function createSession(section, title) {
   const res = await fetch(`${API_URL}/sessions`, {
     method: "POST",

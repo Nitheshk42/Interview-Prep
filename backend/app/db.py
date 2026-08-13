@@ -105,6 +105,30 @@ def list_chat_sessions(username: str, section: str) -> list[dict]:
         return [{"id": r[0], "title": r[1], "updated_at": r[2], "message_count": r[3]} for r in rows]
 
 
+def search_chat_sessions(username: str, section: str, query: str) -> list[dict]:
+    """Matches against the session TITLE, every stored QUESTION, and the raw response JSON text
+    (covers generated answers too, e.g. finding a past chat by something the model said, not
+    just by what you typed) - a plain case-insensitive substring match, no LLM involved, so this
+    costs nothing and works instantly even on a large history."""
+    like = f"%{query.lower()}%"
+    with _engine.connect() as conn:
+        rows = conn.execute(
+            text("""SELECT s.id, s.title, s.updated_at, COUNT(m.id) as message_count
+                    FROM chat_sessions s LEFT JOIN chat_messages m ON m.session_id = s.id
+                    WHERE s.username = :username AND s.section = :section
+                    AND s.id IN (
+                        SELECT id FROM chat_sessions WHERE username = :username AND section = :section
+                        AND LOWER(title) LIKE :like
+                        UNION
+                        SELECT session_id FROM chat_messages
+                        WHERE LOWER(question) LIKE :like OR LOWER(response_json) LIKE :like
+                    )
+                    GROUP BY s.id, s.title, s.updated_at ORDER BY s.updated_at DESC"""),
+            {"username": username, "section": section, "like": like},
+        ).fetchall()
+        return [{"id": r[0], "title": r[1], "updated_at": r[2], "message_count": r[3]} for r in rows]
+
+
 def get_chat_session(username: str, session_id: int) -> dict | None:
     with _engine.connect() as conn:
         session_row = conn.execute(

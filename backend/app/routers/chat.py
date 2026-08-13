@@ -24,6 +24,7 @@ class ChatResponse(BaseModel):
     context: str  # the concatenated chunk text the LLM actually received
     prompt: str  # the full prompt (instructions + context + question) sent to the LLM
     full_resume_used: bool  # True when every chunk was pulled in (enumeration-style question)
+    truncated: bool = False  # True when the answer was cut off by hitting the token limit
 
 
 def _relative_match_pcts(distances: list[float]) -> list[int]:
@@ -54,7 +55,7 @@ def ask(payload: ChatRequest, username: str = Depends(get_current_user)):
             detail="No processed resume found. Please complete onboarding first.",
         )
 
-    answer, retrieved, context, prompt = answer_question(
+    answer, retrieved, context, prompt, truncated = answer_question(
         vectorstore, payload.question, provider=payload.provider
     )
     full_resume_used = _wants_full_resume(payload.question)
@@ -68,4 +69,5 @@ def ask(payload: ChatRequest, username: str = Depends(get_current_user)):
         context=context,
         prompt=prompt,
         full_resume_used=full_resume_used,
+        truncated=truncated,
     )
