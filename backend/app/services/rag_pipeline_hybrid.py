@@ -207,14 +207,14 @@ def _answer_with_template(vectorstore, question: str, template: str, provider: s
 
 
 def answer_resume_fact(vectorstore, question: str, provider: str = "groq"):
-    # Raised from 500 to 750 to match the loosened LENGTH RULE in the prompt (still well below
-    # the old runaway 2000 default).
-    return _answer_with_template(vectorstore, question, RESUME_TEMPLATE, provider, temperature=0.2, max_tokens=750)
+    # Raised again (500 -> 750 -> 1200) - prioritizing complete answers over token frugality
+    # during testing; nowhere near the 100K/day budget in practice.
+    return _answer_with_template(vectorstore, question, RESUME_TEMPLATE, provider, temperature=0.2, max_tokens=1200)
 
 
 def answer_technical_deep_dive(vectorstore, question: str, provider: str = "groq"):
-    # Raised from 700 to 900 to match the loosened LENGTH RULE in the prompt.
-    return _answer_with_template(vectorstore, question, TECHNICAL_TEMPLATE, provider, temperature=0.3, max_tokens=900)
+    # Raised again (700 -> 900 -> 1400) - same reasoning as answer_resume_fact above.
+    return _answer_with_template(vectorstore, question, TECHNICAL_TEMPLATE, provider, temperature=0.3, max_tokens=1400)
 
 
 # ===== EXP Level Answers: one question, answered at four seniority levels =====
@@ -319,7 +319,7 @@ def answer_at_level(vectorstore, question: str, level: str, provider: str = "gro
     # after only a sentence or two was actually the "thinking" tokens eating the budget before
     # any visible answer - see llm_provider.py's thinking_budget=0 fix - not this ceiling being
     # too low.)
-    return _answer_with_template(vectorstore, question, template, provider, temperature=0.4, max_tokens=800)
+    return _answer_with_template(vectorstore, question, template, provider, temperature=0.4, max_tokens=1000)
 
 
 # ===== My JD Answers: paste a JD, get resume-grounded likely interview questions =====
@@ -375,7 +375,8 @@ def generate_jd_questions(vectorstore, jd_text: str, provider: str = "groq", num
     """Given a job description, retrieve the most relevant resume chunks and generate a
     structured list of likely interview questions with resume-grounded model answers."""
     categories = categories or list(CATEGORY_DEFINITIONS.keys())
-    llm = get_llm(provider=provider, temperature=0.5, max_tokens=1800)
+    # Raised (1800 -> 2800) - 5 full Q&A pairs per call; completeness over frugality during testing.
+    llm = get_llm(provider=provider, temperature=0.5, max_tokens=2800)
     retrieved = _retrieve(vectorstore, jd_text, k=6)
     context = format_docs([doc for doc, _score in retrieved])
 
@@ -476,10 +477,11 @@ def generate_general_jd_questions(jd_text: str, provider: str = "groq", num_ques
     in anyone's actual resume.
 
     Unlike the fanned-out calls (Hybrid Chat, EXP Level Answers), this is ONE call that has to
-    produce num_questions x 4 full answers - so it genuinely needs more headroom than a
-    single-answer endpoint. 2500 was cut too close for 6 questions and caused truncated,
-    unparseable output (the token-budget fix that tightened everything else went too far here)."""
-    llm = get_llm(provider=provider, temperature=0.6, max_tokens=4000)
+    produce num_questions x 4 full answers (6 questions x 4 levels = 24 answers) - so it
+    genuinely needs the most headroom of any endpoint in the app. Raised again (4000 -> 6500):
+    completeness over token frugality during testing, and this is still well inside a single
+    day's 100K budget for one generation."""
+    llm = get_llm(provider=provider, temperature=0.6, max_tokens=6500)
 
     avoid_block = ""
     if exclude_questions:

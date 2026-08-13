@@ -68,7 +68,12 @@ def generate_tool_breakdown(resume_text: str, provider: str = "groq"):
     """Returns (tools: list[dict], truncated: bool). Each tool dict has tool/experience/level and
     usages: list[{client, detail}] - the per-client breakdown of how that tool was actually used,
     since the same tool is rarely used identically across different client engagements."""
-    llm = get_llm(provider=provider, temperature=0.2, max_tokens=3200)
+    # Raised (2200 -> 3200 -> 7000). A resume with 15-20+ tools, each with several clients and a
+    # real per-client usage sentence now (not just a client name), needs a lot more headroom than
+    # before - this was the endpoint actually observed truncating mid-list. Completeness over
+    # token frugality during testing: one sync at 7000 tokens is still a small fraction of the
+    # 100K/day budget, and a partial tool list defeats the entire point of the feature.
+    llm = get_llm(provider=provider, temperature=0.2, max_tokens=7000)
     prompt = ChatPromptTemplate.from_template(TOOL_BREAKDOWN_TEMPLATE)
     messages = prompt.format_messages(resume_text=resume_text)
     result, truncated = invoke_and_check_truncation(llm, messages)
@@ -175,7 +180,8 @@ Begin now:"""
 
 def generate_vendor_qa(resume_text: str, jd_text: str, provider: str = "groq", num_questions: int = 8):
     """Returns (items: list[dict], truncated: bool). Each item has category/question/answer."""
-    llm = get_llm(provider=provider, temperature=0.4, max_tokens=3200)
+    # Raised (3200 -> 4500) - 8 full Q&A pairs per call; completeness over frugality during testing.
+    llm = get_llm(provider=provider, temperature=0.4, max_tokens=4500)
     prompt = ChatPromptTemplate.from_template(VENDOR_QA_TEMPLATE)
     messages = prompt.format_messages(resume_text=resume_text, jd_text=jd_text, num_questions=num_questions)
     result, truncated = invoke_and_check_truncation(llm, messages)

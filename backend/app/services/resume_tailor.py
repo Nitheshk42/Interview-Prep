@@ -84,7 +84,8 @@ def ats_match_score(resume_text, jd_keywords):
 def analyze_resume_for_jd(resume_text, jd_text, provider: str = "groq"):
     """Finds the first two project sections in the resume and, against the JD, produces
     SUGGESTIONS (new bullets to ADD, existing text never touched) and MISSING_SKILLS."""
-    llm = get_llm(provider=provider, temperature=0.4, max_tokens=1800)
+    # Raised (1800 -> 2600) - completeness over token frugality during testing.
+    llm = get_llm(provider=provider, temperature=0.4, max_tokens=2600)
     template = """You are a resume coach. Below is a candidate's RESUME and a JOB DESCRIPTION.
 
 RESUME:

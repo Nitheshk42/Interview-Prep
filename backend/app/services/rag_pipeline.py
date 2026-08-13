@@ -112,10 +112,10 @@ def get_rag_chain(vectorstore, provider: str = "groq"):
     steps by hand instead, specifically so the API can return the exact context/prompt that
     was used - the two must never drift apart, or the 'how this answer was made' panel in the
     UI would be showing something that isn't actually true."""
-    # Raised from 700 to give the LENGTH RULE above room for a fuller, more elaborated answer
-    # (still well below the old runaway 2000 default). This cap is a ceiling against runaway
-    # output, not the thing enforcing length - the prompt rule does that.
-    llm = get_llm(provider=provider, temperature=0.3, max_tokens=1000)
+    # Raised again (700 -> 1000 -> 1600) - during testing, a complete answer matters far more
+    # than shaving tokens off a 100K/day budget we're nowhere close to using up. This cap is a
+    # ceiling against runaway output, not the thing enforcing length - the prompt rule does that.
+    llm = get_llm(provider=provider, temperature=0.3, max_tokens=1600)
     prompt = ChatPromptTemplate.from_template(CHAT_TEMPLATE)
     retriever = vectorstore.as_retriever(search_kwargs={"k": 15})
 
@@ -143,10 +143,10 @@ def answer_question(vectorstore, question: str, provider: str = "groq", k: int =
     prompt = ChatPromptTemplate.from_template(CHAT_TEMPLATE)
     full_prompt_text = prompt.format(context=context_text, question=question)
 
-    # Raised from 700 to give the LENGTH RULE above room for a fuller, more elaborated answer
-    # (still well below the old runaway 2000 default). This cap is a ceiling against runaway
-    # output, not the thing enforcing length - the prompt rule does that.
-    llm = get_llm(provider=provider, temperature=0.3, max_tokens=1000)
+    # Raised again (700 -> 1000 -> 1600) - during testing, a complete answer matters far more
+    # than shaving tokens off a 100K/day budget we're nowhere close to using up. This cap is a
+    # ceiling against runaway output, not the thing enforcing length - the prompt rule does that.
+    llm = get_llm(provider=provider, temperature=0.3, max_tokens=1600)
     # Bypasses StrOutputParser (which would discard the response metadata truncation is
     # detected from) so the caller can tell the user honestly when an answer got cut off by
     # hitting max_tokens, instead of silently showing a clipped answer as if it were complete.
