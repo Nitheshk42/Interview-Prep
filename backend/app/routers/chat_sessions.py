@@ -11,7 +11,7 @@ from app import db
 
 router = APIRouter(prefix="/sessions", tags=["chat-sessions"])
 
-VALID_SECTIONS = {"chat", "hybrid", "level", "resume_sync_tools", "resume_sync_qa", "general_jd", "tailor"}
+VALID_SECTIONS = {"chat", "hybrid", "level", "resume_sync_tools", "resume_sync_qa", "general_jd", "tailor", "jd"}
 
 
 def _check_section(section: str):

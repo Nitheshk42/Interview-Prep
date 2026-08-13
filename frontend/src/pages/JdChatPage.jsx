@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useState, useCallback, useEffect } from "react";
 import * as api from "../api/client";
 import { useProvider } from "../context/ProviderContext";
 import TruncationBanner from "../components/TruncationBanner";
+import ChatHistoryPanel from "../components/ChatHistoryPanel";
+
+const SECTION = "jd";
 
 const CATEGORY_STYLE = {
   Technical: { emoji: "🛠️", color: "#2196F3" },
@@ -13,8 +16,14 @@ const CATEGORY_STYLE = {
 
 // Mirrors src/jd_chat.py: paste a JD, check whether it actually fits the resume's domain, then
 // generate resume-grounded likely interview questions grouped by category.
+//
+// Saved chats: each JD you analyze is saved (including any "5 more" you generate). Reopening one
+// replays the stored questions/answers/alignment check straight from the database - no LLM call,
+// so it costs nothing, unlike pasting the same JD in again.
 export default function JdChatPage() {
   const { provider } = useProvider();
+  const [sessions, setSessions] = useState([]);
+  const [activeSessionId, setActiveSessionId] = useState(null);
   const [jdText, setJdText] = useState("");
   const [items, setItems] = useState(null);
   const [alignment, setAlignment] = useState(null);
@@ -23,6 +32,81 @@ export default function JdChatPage() {
   const [busy, setBusy] = useState(false);
   const [moreBusy, setMoreBusy] = useState(false);
   const [error, setError] = useState("");
+
+  const refreshSessions = useCallback(() => {
+    api.listSessions(SECTION).then(setSessions).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshSessions();
+  }, [refreshSessions]);
+
+  function handleNewChat() {
+    setActiveSessionId(null);
+    setJdText("");
+    setItems(null);
+    setAlignment(null);
+    setTruncated(false);
+    setActiveCategory(null);
+    setError("");
+  }
+
+  async function handleSelectSession(sessionId) {
+    setError("");
+    try {
+      const session = await api.getSession(sessionId);
+      const last = session.messages[session.messages.length - 1];
+      if (!last) return;
+      setActiveSessionId(sessionId);
+      setJdText(last.question);
+      setItems(last.response.items);
+      setAlignment(last.response.alignment);
+      setTruncated(!!last.response.truncated);
+      setActiveCategory(last.response.items[0]?.category ?? null);
+    } catch (err) {
+      setError(err.message || "Couldn't load that chat.");
+    }
+  }
+
+  async function handleDeleteSession(sessionId) {
+    try {
+      await api.deleteSession(sessionId);
+      if (sessionId === activeSessionId) handleNewChat();
+      refreshSessions();
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleRenameSession(sessionId, title) {
+    try {
+      await api.renameSession(sessionId, title);
+      refreshSessions();
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleSearch(query) {
+    try {
+      const results = query.trim() ? await api.searchSessions(SECTION, query.trim()) : await api.listSessions(SECTION);
+      setSessions(results);
+    } catch {
+      // ignore
+    }
+  }
+
+  async function persist(newItems, newAlignment, newTruncated) {
+    let sessionId = activeSessionId;
+    if (!sessionId) {
+      const title = jdText.trim().split("\n")[0].slice(0, 60) || "New JD";
+      const created = await api.createSession(SECTION, title);
+      sessionId = created.id;
+      setActiveSessionId(sessionId);
+    }
+    await api.appendSessionMessage(sessionId, jdText, { items: newItems, alignment: newAlignment, truncated: newTruncated });
+    refreshSessions();
+  }
 
   async function handleGenerate() {
     if (!jdText.trim()) {
@@ -37,6 +121,7 @@ export default function JdChatPage() {
       setAlignment(data.alignment);
       setTruncated(data.truncated);
       setActiveCategory(data.items[0]?.category ?? null);
+      await persist(data.items, data.alignment, data.truncated);
     } catch (err) {
       setError(err.message || "Couldn't generate questions — try again.");
     } finally {
@@ -53,8 +138,10 @@ export default function JdChatPage() {
         excludeQuestions: items.map((i) => i.question),
         checkAlignment: false,
       });
-      setItems((prev) => [...prev, ...data.items]);
+      const merged = [...items, ...data.items];
+      setItems(merged);
       setTruncated(data.truncated);
+      await persist(merged, alignment, data.truncated);
     } catch (err) {
       setError(err.message || "Couldn't generate more questions — try again.");
     } finally {
@@ -67,7 +154,17 @@ export default function JdChatPage() {
   const categories = Object.keys(counts);
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="flex">
+      <ChatHistoryPanel
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onNewChat={handleNewChat}
+        onSelect={handleSelectSession}
+        onDelete={handleDeleteSession}
+        onRename={handleRenameSession}
+        onSearch={handleSearch}
+      />
+      <div className="p-6 max-w-4xl mx-auto flex-1">
       <div className="rounded-2xl p-6 mb-6 text-white" style={{ background: "linear-gradient(135deg, #1a73e8 0%, #6c5ce7 100%)" }}>
         <p className="text-xl font-bold">📋 My JD Answers</p>
         <p className="text-sm opacity-90 mt-1">
@@ -147,6 +244,7 @@ export default function JdChatPage() {
           </button>
         </>
       )}
+      </div>
     </div>
   );
 }
