@@ -234,6 +234,12 @@ def verify_user(username: str, password: str) -> bool:
         return verify_password(password, row[0])
 
 
+def user_exists(username: str) -> bool:
+    with _engine.connect() as conn:
+        row = conn.execute(text("SELECT 1 FROM users WHERE username = :username"), {"username": username}).fetchone()
+        return row is not None
+
+
 def get_profile(username: str) -> dict:
     with _engine.connect() as conn:
         row = conn.execute(

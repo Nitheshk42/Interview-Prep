@@ -18,11 +18,18 @@ JWT_SECRET = os.getenv("JWT_SECRET", "change-me-to-a-random-secret")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days - a browser tab session shouldn't need to re-login daily
 
-# Local dev: unset -> falls back to the SQLite file at DB_PATH (see db.py). In Cloud Run, set
-# this to a Cloud SQL Postgres connection string so user accounts/chats survive redeploys and
-# don't live on the container's ephemeral disk. SQLAlchemy's engine understands both dialects
-# transparently, so db.py itself never needs to know which one is active.
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
+# Local dev: unset -> falls back to the SQLite file at DB_PATH (see db.py). In production, set
+# this to a Postgres connection string (Render's managed Postgres, Cloud SQL, Supabase, etc.) so
+# user accounts/chats survive redeploys instead of living on the container's ephemeral disk.
+# SQLAlchemy's engine understands both dialects transparently, so db.py itself never needs to
+# know which one is active.
+_raw_database_url = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
+# Render (and Heroku, and others) hand back "postgres://..." - a scheme name SQLAlchemy's
+# psycopg2 driver doesn't recognize (it wants "postgresql://" or "postgresql+psycopg2://").
+# Normalizing here means the raw value from the platform can be used as-is everywhere else.
+if _raw_database_url.startswith("postgres://"):
+    _raw_database_url = _raw_database_url.replace("postgres://", "postgresql+psycopg2://", 1)
+DATABASE_URL = _raw_database_url
 
 # Local dev: unset -> resumes/Chroma vector data live only on local disk (fine, it's durable
 # there). In Cloud Run, set this to a GCS bucket name so uploaded resumes and each user's Chroma

@@ -18,6 +18,17 @@ async function handle(res) {
     } catch {
       // ignore - no JSON body
     }
+    // A 401 here means the backend rejected an already-decoded token - most commonly a "ghost"
+    // session where the token is signature-valid but the underlying user no longer exists (e.g.
+    // an ephemeral-disk redeploy wiped the DB). Whatever the cause, the right move is a clean
+    // re-login rather than leaving the user stuck on a page silently no-op'ing every request.
+    if (res.status === 401) {
+      localStorage.removeItem("studysager_token");
+      localStorage.removeItem("studysager_username");
+      if (!location.pathname.startsWith("/login")) {
+        location.reload();
+      }
+    }
     throw new Error(detail);
   }
   return res.json();
