@@ -1,10 +1,23 @@
 fastapi
 uvicorn[standard]
+gunicorn
 python-dotenv
 bcrypt
 pyjwt
 python-multipart
 numpy<3.0.0
+
+# Storage: SQLAlchemy Core abstracts SQLite (local dev) vs Postgres (Cloud SQL in production)
+# behind the same db.py code. psycopg2-binary is only exercised when DATABASE_URL points at
+# Postgres - harmless to install locally either way. Cloud Run connects to Cloud SQL over the
+# built-in Unix socket (--add-cloudsql-instances), so no separate connector library is needed -
+# see DEPLOY.md for the exact DATABASE_URL format that uses.
+sqlalchemy>=2.0
+psycopg2-binary
+
+# Cloud Storage: backs up uploaded resumes + each user's Chroma vector DB so they survive a
+# Cloud Run redeploy/cold start - only used when GCS_BUCKET_NAME is set (see gcs_storage.py).
+google-cloud-storage
 
 # LangChain core
 langchain

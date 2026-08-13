@@ -21,8 +21,13 @@ def get_full_resume_text(username: str) -> str:
     vector store's small retrieved chunks. Cheap enough to just re-read on each request
     instead of caching, since resumes are small and this keeps the backend stateless."""
     from app.services.document_loader import load_documents
+    from app.services import gcs_storage
 
     data_dir = user_data_dir(username)
+    if (not os.path.isdir(data_dir) or not os.listdir(data_dir)) and gcs_storage.enabled():
+        # Local disk is empty (fresh Cloud Run instance) - pull the raw resume file(s) back
+        # from Cloud Storage before reading them.
+        gcs_storage.restore_dir(data_dir, f"resumes/{username}.tar.gz")
     documents = load_documents(data_dir)
     return "\n".join(doc.page_content for doc in documents)
 
@@ -35,6 +40,7 @@ def process_resume(file_path_and_names: list[tuple[str, bytes]], username: str):
     from app.services.text_splitter import split_documents
     from app.services.embeddings import get_embeddings
     from app.services.vector_store import create_vector_store
+    from app.services import gcs_storage
 
     data_dir = user_data_dir(username)
     if os.path.exists(data_dir):
@@ -51,6 +57,11 @@ def process_resume(file_path_and_names: list[tuple[str, bytes]], username: str):
     embeddings_model = get_embeddings()
     create_vector_store(splits, embeddings_model, username=username)
     db.mark_resume_uploaded(username)
+
+    # Cloud Run's local disk is ephemeral - back the raw resume file up to GCS right after
+    # processing so a later cold-start instance (or this one restarting) can restore it. No-op
+    # locally where GCS_BUCKET_NAME isn't set.
+    gcs_storage.backup_dir(data_dir, f"resumes/{username}.tar.gz")
 
 
 @router.post("/complete")

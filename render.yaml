@@ -1,0 +1,52 @@
+# Render Blueprint - deploys both services in one shot via Render's dashboard
+# (New + → Blueprint → point at this GitHub repo). No gcloud, no Cloud Shell, no separate
+# database/storage service: the backend gets a small persistent disk instead, so the existing
+# SQLite file + uploaded resumes + Chroma vector DB just live there exactly like local dev -
+# nothing about the app code needed to change for this to work.
+services:
+  - type: web
+    name: studysager-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: starter   # persistent disks require Starter or above - free tier can't attach one
+    region: oregon
+    healthCheckPath: /health
+    disk:
+      name: studysager-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: APP_DATA_DIR
+        value: /var/data
+      - key: JWT_SECRET
+        generateValue: true   # Render generates and stores a random secret for you
+      # Predictable because Render service URLs follow https://<name>.onrender.com for the
+      # `name` given below - adjust both this and the frontend's VITE_API_URL together if you
+      # rename either service.
+      - key: EXTRA_CORS_ORIGINS
+        value: https://studysager-frontend.onrender.com
+      # sync: false = "this env var exists, but set its real value yourself in the Render
+      # dashboard after the first deploy" - keeps API keys out of this file and out of git.
+      - key: GROQ_API_KEY
+        sync: false
+      - key: HF_API_TOKEN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+
+  - type: web
+    name: studysager-frontend
+    runtime: static
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: ./frontend/dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://studysager-backend.onrender.com
+    routes:
+      # Client-side routing fallback - any path that isn't a real built file serves index.html.
+      - type: rewrite
+        source: /*
+        destination: /index.html

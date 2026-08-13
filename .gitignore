@@ -7,3 +7,6 @@ backend/data/
 frontend/node_modules/
 frontend/dist/
 frontend/.env
+
+# Real DB password / JWT secret / API keys go here, sourced by deploy.sh - never commit this.
+deploy.env

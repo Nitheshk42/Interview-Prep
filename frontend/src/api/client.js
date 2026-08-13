@@ -1,4 +1,8 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+// window.__API_URL__ is set at container startup by the frontend's Docker entrypoint (see
+// frontend/docker-entrypoint.sh), reading the backend's URL from a Cloud Run env var - this lets
+// the SAME built frontend image be redeployed against a different backend URL without a
+// rebuild. Falls back to the Vite build-time env var (local dev) and finally localhost.
+const API_URL = window.__API_URL__ || import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 function authHeaders() {
   const token = localStorage.getItem("studysager_token");

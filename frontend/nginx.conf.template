@@ -1,0 +1,19 @@
+# Templated by nginx's built-in /docker-entrypoint.d/20-envsubst-on-templates.sh at container
+# startup, substituting ${PORT} from Cloud Run's injected environment variable - Cloud Run
+# requires listening on that exact port, which changes per deployment.
+server {
+    listen ${PORT};
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Single-page app: any path that isn't a real static file falls back to index.html so
+    # client-side routing (and a hard refresh on a deep link) both work.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location = /env.js {
+        add_header Cache-Control "no-store";
+    }
+}

@@ -8,6 +8,11 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Generated at container startup by docker-entrypoint.sh in production - sets
+         window.__API_URL__ from a Cloud Run env var. Harmless 404 locally (client.js falls back
+         to VITE_API_URL / localhost when it's missing), so it's safe to leave referenced here
+         for both local dev and the Docker build. -->
+    <script src="/env.js"></script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

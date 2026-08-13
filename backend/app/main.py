@@ -2,8 +2,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import CORS_ORIGINS
 from app.routers import auth, onboarding, chat, hybrid_chat, level_chat, jd_chat, general_jd_chat, resume_tailor, chat_sessions, resume_sync
+from app import db
 
 app = FastAPI(title="StudySager API", version="0.1.0")
+
+
+@app.on_event("startup")
+def _startup():
+    # Creates any missing tables once per process (not per-request like the old sqlite3-per-call
+    # pattern did) - works identically against the local SQLite file or a Cloud SQL Postgres
+    # instance, since db.py's schema is defined via dialect-portable SQLAlchemy Table objects.
+    db.init_db()
 
 app.add_middleware(
     CORSMiddleware,
