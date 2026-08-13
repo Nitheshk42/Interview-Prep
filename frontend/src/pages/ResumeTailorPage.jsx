@@ -1,14 +1,24 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import * as api from "../api/client";
 import { useProvider } from "../context/ProviderContext";
 import TruncationBanner from "../components/TruncationBanner";
+import ChatHistoryPanel from "../components/ChatHistoryPanel";
+
+const SECTION = "tailor";
 
 // Mirrors src/resume_tailor_ui.py: paste a JD, get suggested bullets to ADD (never rewrites
 // existing text) for your first two projects, plus a live ATS keyword score that updates the
 // instant you check/uncheck a suggestion - nothing changes in the actual resume until you
 // approve it.
+//
+// Saved chats: each JD you analyze is saved. Reopening one restores the baseline analysis (the
+// suggested bullets, keywords, ATS score) with no LLM call - the checkbox choices/live diff/
+// preview themselves aren't persisted since they're just in-session tinkering, cheap to redo
+// and specific to that visit, not worth the storage.
 export default function ResumeTailorPage() {
   const { provider } = useProvider();
+  const [sessions, setSessions] = useState([]);
+  const [activeSessionId, setActiveSessionId] = useState(null);
   const [jdText, setJdText] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState("");
@@ -30,6 +40,86 @@ export default function ResumeTailorPage() {
   const [previewBusy, setPreviewBusy] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState(false);
 
+  const refreshSessions = useCallback(() => {
+    api.listSessions(SECTION).then(setSessions).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshSessions();
+  }, [refreshSessions]);
+
+  function resetAnalysis() {
+    setFullResumeText("");
+    setJdKeywords([]);
+    setBaselineScore(0);
+    setProjects(null);
+    setTruncated(false);
+    setApprovedSuggestions([]);
+    setApprovedSkills([]);
+    setDiffs(null);
+    setPreviewMarkdown(null);
+  }
+
+  function handleNewChat() {
+    setActiveSessionId(null);
+    setJdText("");
+    resetAnalysis();
+    setError("");
+  }
+
+  function applyAnalysis(data) {
+    setFullResumeText(data.full_resume_text);
+    setJdKeywords(data.jd_keywords);
+    setBaselineScore(data.baseline_score);
+    setProjects(data.projects);
+    setTruncated(!!data.truncated);
+    setApprovedSuggestions(data.projects.map(() => new Set()));
+    setApprovedSkills(data.projects.map(() => new Set()));
+  }
+
+  async function handleSelectSession(sessionId) {
+    setError("");
+    try {
+      const session = await api.getSession(sessionId);
+      const last = session.messages[session.messages.length - 1];
+      if (!last) return;
+      setActiveSessionId(sessionId);
+      setJdText(last.question);
+      setPreviewMarkdown(null);
+      applyAnalysis(last.response);
+    } catch (err) {
+      setError(err.message || "Couldn't load that chat.");
+    }
+  }
+
+  async function handleDeleteSession(sessionId) {
+    try {
+      await api.deleteSession(sessionId);
+      if (sessionId === activeSessionId) handleNewChat();
+      refreshSessions();
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleRenameSession(sessionId, title) {
+    try {
+      await api.renameSession(sessionId, title);
+      refreshSessions();
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleSearch(query) {
+    try {
+      const results = query.trim() ? await api.searchSessions(SECTION, query.trim()) : await api.listSessions(SECTION);
+      setSessions(results);
+    } catch {
+      // ignore
+    }
+  }
+
   async function handleAnalyze() {
     if (!jdText.trim()) {
       setError("Please paste a job description first.");
@@ -40,13 +130,13 @@ export default function ResumeTailorPage() {
     setPreviewMarkdown(null);
     try {
       const data = await api.analyzeResumeTailor(jdText, provider);
-      setFullResumeText(data.full_resume_text);
-      setJdKeywords(data.jd_keywords);
-      setBaselineScore(data.baseline_score);
-      setProjects(data.projects);
-      setTruncated(data.truncated);
-      setApprovedSuggestions(data.projects.map(() => new Set()));
-      setApprovedSkills(data.projects.map(() => new Set()));
+      applyAnalysis(data);
+
+      const title = jdText.trim().split("\n")[0].slice(0, 60) || "New JD";
+      const created = await api.createSession(SECTION, title);
+      setActiveSessionId(created.id);
+      await api.appendSessionMessage(created.id, jdText, data);
+      refreshSessions();
     } catch (err) {
       setError(err.message || "Couldn't parse a result — try again.");
     } finally {
@@ -138,7 +228,17 @@ export default function ResumeTailorPage() {
   const delta = score - baselineScore;
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="flex">
+      <ChatHistoryPanel
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onNewChat={handleNewChat}
+        onSelect={handleSelectSession}
+        onDelete={handleDeleteSession}
+        onRename={handleRenameSession}
+        onSearch={handleSearch}
+      />
+      <div className="p-6 max-w-4xl mx-auto flex-1">
       <h1 className="text-xl font-medium text-gray-900 mb-1">🎯 Resume Tailor</h1>
       <p className="text-sm text-gray-500 mb-4">
         Paste a job description — for your first two projects, this suggests new points you
@@ -239,6 +339,7 @@ export default function ResumeTailorPage() {
           )}
         </>
       )}
+      </div>
     </div>
   );
 }

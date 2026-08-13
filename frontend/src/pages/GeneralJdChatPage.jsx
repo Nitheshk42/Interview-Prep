@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useState, useCallback, useEffect } from "react";
 import * as api from "../api/client";
 import { useProvider } from "../context/ProviderContext";
 import TruncationBanner from "../components/TruncationBanner";
+import ChatHistoryPanel from "../components/ChatHistoryPanel";
+
+const SECTION = "general_jd";
 
 const LEVEL_ORDER = ["Junior", "Mid-Level", "Senior", "Architect"];
 const LEVEL_META = {
@@ -14,14 +17,91 @@ const LEVEL_META = {
 // Mirrors src/general_jd_chat.py: paste a JD, get interview Q&A generated purely from general
 // LLM knowledge - no resume, no personal context at all - at all four seniority levels. The
 // "no resume grounding" counterpart to My JD Answers.
+//
+// Saved chats: each JD you analyze is saved under a title taken from the JD text. Reopening one
+// replays the stored questions/answers straight from the database instead of regenerating them -
+// no LLM call, so it costs nothing, unlike pasting the same JD in again.
 export default function GeneralJdChatPage() {
   const { provider } = useProvider();
+  const [sessions, setSessions] = useState([]);
+  const [activeSessionId, setActiveSessionId] = useState(null);
   const [jdText, setJdText] = useState("");
   const [items, setItems] = useState(null);
   const [truncated, setTruncated] = useState(false);
   const [busy, setBusy] = useState(false);
   const [moreBusy, setMoreBusy] = useState(false);
   const [error, setError] = useState("");
+
+  const refreshSessions = useCallback(() => {
+    api.listSessions(SECTION).then(setSessions).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshSessions();
+  }, [refreshSessions]);
+
+  function handleNewChat() {
+    setActiveSessionId(null);
+    setJdText("");
+    setItems(null);
+    setTruncated(false);
+    setError("");
+  }
+
+  async function handleSelectSession(sessionId) {
+    setError("");
+    try {
+      const session = await api.getSession(sessionId);
+      const last = session.messages[session.messages.length - 1];
+      if (!last) return;
+      setActiveSessionId(sessionId);
+      setJdText(last.question);
+      setItems(last.response.items);
+      setTruncated(!!last.response.truncated);
+    } catch (err) {
+      setError(err.message || "Couldn't load that chat.");
+    }
+  }
+
+  async function handleDeleteSession(sessionId) {
+    try {
+      await api.deleteSession(sessionId);
+      if (sessionId === activeSessionId) handleNewChat();
+      refreshSessions();
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleRenameSession(sessionId, title) {
+    try {
+      await api.renameSession(sessionId, title);
+      refreshSessions();
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleSearch(query) {
+    try {
+      const results = query.trim() ? await api.searchSessions(SECTION, query.trim()) : await api.listSessions(SECTION);
+      setSessions(results);
+    } catch {
+      // ignore
+    }
+  }
+
+  async function persist(newItems, newTruncated) {
+    let sessionId = activeSessionId;
+    if (!sessionId) {
+      const title = jdText.trim().split("\n")[0].slice(0, 60) || "New JD";
+      const created = await api.createSession(SECTION, title);
+      sessionId = created.id;
+      setActiveSessionId(sessionId);
+    }
+    await api.appendSessionMessage(sessionId, jdText, { items: newItems, truncated: newTruncated });
+    refreshSessions();
+  }
 
   async function handleGenerate() {
     if (!jdText.trim()) {
@@ -34,6 +114,7 @@ export default function GeneralJdChatPage() {
       const data = await api.generateGeneralJdQuestions({ jdText, provider, numQuestions: 6 });
       setItems(data.items);
       setTruncated(data.truncated);
+      await persist(data.items, data.truncated);
     } catch (err) {
       setError(err.message || "Couldn't generate questions — try again.");
     } finally {
@@ -49,8 +130,10 @@ export default function GeneralJdChatPage() {
         jdText, provider, numQuestions: 5,
         excludeQuestions: items.map((i) => i.question),
       });
-      setItems((prev) => [...prev, ...data.items]);
+      const merged = [...items, ...data.items];
+      setItems(merged);
       setTruncated(data.truncated);
+      await persist(merged, data.truncated);
     } catch (err) {
       setError(err.message || "Couldn't generate more questions — try again.");
     } finally {
@@ -59,7 +142,17 @@ export default function GeneralJdChatPage() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="flex">
+      <ChatHistoryPanel
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onNewChat={handleNewChat}
+        onSelect={handleSelectSession}
+        onDelete={handleDeleteSession}
+        onRename={handleRenameSession}
+        onSearch={handleSearch}
+      />
+      <div className="p-6 max-w-4xl mx-auto flex-1">
       <div className="rounded-2xl p-6 mb-6 text-white" style={{ background: "linear-gradient(135deg, #6c5ce7 0%, #1a73e8 100%)" }}>
         <p className="text-xl font-bold">🧠 General JD Answers</p>
         <p className="text-sm opacity-90 mt-1">
@@ -112,6 +205,7 @@ export default function GeneralJdChatPage() {
           </button>
         </>
       )}
+      </div>
     </div>
   );
 }
