@@ -163,34 +163,42 @@ function ToolSyncTab() {
             past sync from the list on the left.
           </p>
         ) : (
-          <div className="border border-gray-200 rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-gray-500 text-xs">
-                <tr>
-                  <th className="text-left px-3 py-2">Tool</th>
-                  <th className="text-left px-3 py-2">Experience</th>
-                  <th className="text-left px-3 py-2">Level</th>
-                  <th className="text-left px-3 py-2">Client / Project</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tools.map((t, i) => (
-                  <tr key={i} className={i % 2 ? "bg-white" : "bg-gray-50/50"}>
-                    <td className="px-3 py-2 font-medium text-gray-900">{t.tool}</td>
-                    <td className="px-3 py-2 text-gray-700">{t.experience}</td>
-                    <td className="px-3 py-2">
-                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${LEVEL_COLOR[t.level] || "bg-gray-100 text-gray-600"}`}>
-                        {t.level}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-gray-700">{t.clients.join(", ")}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-3">
+            {tools.map((t, i) => (
+              <ToolCard key={i} tool={t} />
+            ))}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function ToolCard({ tool }) {
+  const usages = tool.usages && tool.usages.length ? tool.usages : (tool.clients || []).map((c) => ({ client: c, detail: "" }));
+  return (
+    <div className="border border-gray-200 rounded-xl p-4 bg-white">
+      <div className="flex items-center gap-2 flex-wrap mb-1">
+        <p className="text-sm font-semibold text-gray-900">{tool.tool}</p>
+        <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${LEVEL_COLOR[tool.level] || "bg-gray-100 text-gray-600"}`}>
+          {tool.level}
+        </span>
+        <span className="text-xs text-gray-400">{tool.experience} total</span>
+      </div>
+      {usages.length === 0 ? (
+        <p className="text-xs text-gray-400 mt-2">No specific client tied to this in the resume.</p>
+      ) : (
+        <div className="mt-2 space-y-1.5">
+          {usages.map((u, idx) => (
+            <div key={idx} className="flex gap-2 text-sm">
+              <span className="font-medium text-gray-800 shrink-0">{u.client}:</span>
+              <span className="text-gray-600">
+                {u.detail || <span className="italic text-gray-400">Listed for this client, no further detail in the resume.</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

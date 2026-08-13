@@ -17,7 +17,12 @@ from app.services.llm_provider import get_llm, invoke_and_check_truncation
 
 TOOL_BREAKDOWN_TEMPLATE = """You are helping a candidate "sync" with their own resume before a
 vendor screening call or interview - they need to be able to state, without hesitation, how much
-experience they have with each tool and where they used it.
+experience they have with each tool, and for EACH client where they used it, exactly HOW they
+used it there - because the same tool is almost never used the same way twice: at one client it
+might have been building a real-time ingestion pipeline, at another it might have been automating
+deployments, at another just querying/reporting. A vendor or interviewer who asks "you list Kafka
+at three clients - what did you actually do with it at each one?" needs a real, distinct answer
+for every single client, not one generic blurb repeated three times.
 
 RESUME:
 {resume_text}
@@ -30,27 +35,40 @@ Jenkins, React, SQL Server - whatever genuinely appears). For EACH one, work out
   where it appears (e.g. "3 years 2 months" or "2+ years" if ranges are approximate). If a tool
   appears across multiple non-contiguous roles, add the periods together rather than just citing
   the most recent one.
-- CLIENTS: every client/company/project name (in the format the resume uses) where this tool
-  was actually used, comma-separated, most recent first.
 - LEVEL: one of Beginner / Intermediate / Advanced / Expert, judged from how central the tool was
   to the role, how long it was used, and how deeply it's described (not just whether it's
   mentioned once in a skills list).
+- USAGE: every client/company/project (in the format the resume uses) where this tool was
+  actually used, most recent first - and for EACH one, one specific sentence describing what it
+  was actually used FOR at that client: what was built, what problem it solved, what it
+  connected to or fed into. Pull the specifics straight from that client's bullet points/context
+  in the resume - never write the same description twice for two different clients even if the
+  resume phrasing is similar; find the real distinguishing detail (different data source, different
+  scale, different part of the pipeline, different team's need) or say plainly that the resume
+  only shows it listed as a skill with no further detail for that client, rather than fabricating
+  one.
 
 Do NOT invent a tool that isn't actually in the resume. Do NOT skip a tool just because it only
 appears once - list it with whatever real duration/client that one appearance supports. Order
 the list with the tools used most extensively (longest total experience) first.
 
-Respond with ONE LINE PER TOOL in EXACTLY this pipe-delimited format, nothing else, no headers,
-no numbering:
+Respond with each tool as a block in EXACTLY this format, separated by ===, nothing else, no
+extra commentary:
 
-TOOL :: EXPERIENCE :: LEVEL :: CLIENTS
+TOOL: <tool name>
+EXPERIENCE: <total time>
+LEVEL: <Beginner|Intermediate|Advanced|Expert>
+USAGE: <Client A> :: <specific one-sentence description of how it was used there>; <Client B> :: <specific one-sentence description of how it was used there>
+===
 
 Begin now:"""
 
 
 def generate_tool_breakdown(resume_text: str, provider: str = "groq"):
-    """Returns (tools: list[dict], truncated: bool). Each tool dict has tool/experience/level/clients."""
-    llm = get_llm(provider=provider, temperature=0.2, max_tokens=2200)
+    """Returns (tools: list[dict], truncated: bool). Each tool dict has tool/experience/level and
+    usages: list[{client, detail}] - the per-client breakdown of how that tool was actually used,
+    since the same tool is rarely used identically across different client engagements."""
+    llm = get_llm(provider=provider, temperature=0.2, max_tokens=3200)
     prompt = ChatPromptTemplate.from_template(TOOL_BREAKDOWN_TEMPLATE)
     messages = prompt.format_messages(resume_text=resume_text)
     result, truncated = invoke_and_check_truncation(llm, messages)
@@ -60,18 +78,39 @@ def generate_tool_breakdown(resume_text: str, provider: str = "groq"):
 
 def _parse_tool_breakdown(raw: str):
     tools = []
-    for line in raw.strip().splitlines():
-        line = line.strip().lstrip("-").strip()
-        if not line or "::" not in line:
+    for block in raw.split("==="):
+        tool_match = re.search(r"TOOL:\s*(.+)", block)
+        exp_match = re.search(r"EXPERIENCE:\s*(.+)", block)
+        level_match = re.search(r"LEVEL:\s*(.+)", block)
+        usage_match = re.search(r"USAGE:\s*(.+)", block)
+        if not (tool_match and exp_match and level_match):
             continue
-        parts = [p.strip() for p in line.split("::")]
-        if len(parts) != 4:
+        tool = tool_match.group(1).strip()
+        if not tool or tool.lower() in ("tool", "none", "n/a"):
             continue
-        tool, experience, level, clients_raw = parts
-        if tool.lower() in ("tool", "none"):
-            continue
-        clients = [c.strip() for c in clients_raw.split(",") if c.strip()]
-        tools.append({"tool": tool, "experience": experience, "level": level, "clients": clients})
+
+        usages = []
+        if usage_match:
+            for entry in usage_match.group(1).split(";"):
+                entry = entry.strip().rstrip(",")
+                if not entry:
+                    continue
+                if "::" in entry:
+                    client, detail = entry.split("::", 1)
+                    usages.append({"client": client.strip(), "detail": detail.strip()})
+                elif entry:
+                    # Model didn't include a "::" separator for this entry - still surface the
+                    # client name rather than silently dropping it.
+                    usages.append({"client": entry.strip(), "detail": ""})
+
+        tools.append({
+            "tool": tool,
+            "experience": exp_match.group(1).strip(),
+            "level": level_match.group(1).strip(),
+            "usages": usages,
+            # Kept for anything still reading the old flat "clients" shape.
+            "clients": [u["client"] for u in usages],
+        })
     return tools
 
 

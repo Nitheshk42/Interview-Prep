@@ -9,11 +9,11 @@
 // with phase: null (Visual RAG Learning) are shown ungrouped, at the end.
 export const SECTIONS = [
   { key: "resume_sync", label: "🎯 Resume Sync", desc: "Tool-by-tool experience sync + vendor call prep", enabled: true, phase: "before" },
-  { key: "chat", label: "💬 Chat Assistant", desc: "Ask anything about your resume", enabled: true, phase: "before" },
   { key: "level", label: "🪜 My EXP Level Answers", desc: "Same question, every seniority level", enabled: true, phase: "before" },
   { key: "jd", label: "📋 My JD Answers", desc: "Interview Q&A matched to your resume", enabled: true, phase: "before" },
   { key: "general_jd", label: "🧠 General JD Answers", desc: "Interview Q&A with no resume context", enabled: true, phase: "before" },
   { key: "tailor", label: "🎯 Resume Tailor", desc: "Tailor your bullets to a job description", enabled: true, phase: "before" },
+  { key: "chat", label: "💬 Chat Assistant", desc: "Ask anything about your resume", enabled: true, phase: "during" },
   { key: "hybrid", label: "🔀 Hybrid Chat", desc: "Resume facts plus technical depth", enabled: true, phase: "during" },
   { key: "visual", label: "📖 Visual RAG Learning", desc: "See how your resume becomes searchable", enabled: false, phase: null },
 ];
