@@ -1,27 +1,32 @@
 # Deploying StudySager to Render
 
 Much simpler than the Cloud Run path (`DEPLOY.md`) for small-scale use: one backend web service
-with a small attached disk (so SQLite + uploaded resumes + the Chroma vector DB persist across
-redeploys, exactly like local dev - no separate database or storage service needed), plus one
-static-site frontend. No code changes were needed for this - the app already falls back to local
-SQLite/disk whenever `DATABASE_URL`/`GCS_BUCKET_NAME` aren't set, which is exactly the case here.
+plus one static-site frontend. No code changes were needed for this - the app already falls back
+to local SQLite/disk whenever `DATABASE_URL`/`GCS_BUCKET_NAME` aren't set, which is exactly the
+case here.
 
 No CLI, no Cloud Shell - this is entirely done through Render's dashboard.
 
-## Cost note
+## Cost note - currently configured for the FREE tier
 
-The persistent disk requires Render's **Starter** plan (~$7/month per service that needs a disk).
-The frontend (a static site) can stay on Render's free tier - static sites don't sleep or need a
-disk. So this is roughly $7/month total, all on the backend service, comparable to Cloud Run's
-Cloud SQL cost but with far less setup.
+`render.yaml` is currently set to `plan: free` on the backend with no persistent disk, so this
+costs **$0/month**. The real tradeoff: without a disk, the backend's local SQLite database,
+uploaded resumes, and Chroma vector DB reset every time the service redeploys or spins down from
+15 minutes of inactivity (free services sleep when idle and take ~30-60s to wake back up on the
+next request) - fine for trying the app out, **not fine for keeping real user accounts/resumes**.
 
-If you want it fully free instead: use Render's Free web service tier for the backend too, but
-accept two tradeoffs - (1) it spins down after 15 minutes idle and takes ~30-60s to wake back up
-on the next request, and (2) without a disk, the container's local files reset on every redeploy
-and periodically on the free tier, so **user accounts and resumes would not persist** - only
-reasonable for a demo, not real use. Say the word if you want me to set up that free-tier variant
-instead (mechanically: just remove the `disk:` block and change `plan: starter` to nothing in
-`render.yaml`, accepting the ephemeral-data tradeoff).
+**When you're ready to make data permanent**, add this back under the backend service in
+`render.yaml`, change `plan: free` to `plan: starter` (~$7/month), commit, and push - Render
+auto-redeploys with the change:
+
+```yaml
+    disk:
+      name: studysager-data
+      mountPath: /var/data
+      sizeGB: 1
+```
+and add an env var `APP_DATA_DIR` = `/var/data` alongside the others. Just ask and I'll make that
+edit directly when you're ready.
 
 ## Deploy
 
