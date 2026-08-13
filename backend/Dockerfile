@@ -26,7 +26,11 @@ ENV PORT=8080
 
 EXPOSE 8080
 
-# 2 workers is a reasonable default for Cloud Run's typical 1-2 vCPU allocation; each worker
-# handles requests via uvicorn's async event loop. --timeout raised because LLM calls (JD/vendor
-# Q&A generation especially) can legitimately take 20-60s.
-CMD exec gunicorn -k uvicorn.workers.UvicornWorker -w 2 --timeout 120 -b 0.0.0.0:${PORT} app.main:app
+# Single worker deliberately: chromadb's SQLite-backed persistent store doesn't handle multiple
+# OS processes writing to the same directory well - on Render's container filesystem, two gunicorn
+# workers each holding their own connection to the same Chroma files triggers SQLite's
+# READONLY_DBMOVED safety check (code 1032) as a false positive under concurrent access. One
+# worker's async event loop (uvicorn) already handles concurrent requests fine at this scale (free
+# tier, small user base) - this isn't a capacity tradeoff, it's what avoids the crash. --timeout
+# raised because LLM calls (JD/vendor Q&A generation especially) can legitimately take 20-60s.
+CMD exec gunicorn -k uvicorn.workers.UvicornWorker -w 1 --timeout 120 -b 0.0.0.0:${PORT} app.main:app
