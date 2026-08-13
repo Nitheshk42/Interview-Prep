@@ -42,7 +42,7 @@ export default function Sidebar({ section, onSectionChange }) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("studysager_token")}`,
+          Authorization: `Bearer ${sessionStorage.getItem("studysager_token")}`,
         },
         body: JSON.stringify({ message: feedback }),
       });

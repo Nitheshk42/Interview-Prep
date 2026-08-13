@@ -5,7 +5,9 @@
 const API_URL = window.__API_URL__ || import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 function authHeaders() {
-  const token = localStorage.getItem("studysager_token");
+  // sessionStorage, not localStorage - deliberately cleared when the tab/browser closes, so a
+  // closed tab requires logging in again instead of the session persisting indefinitely.
+  const token = sessionStorage.getItem("studysager_token");
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -23,8 +25,8 @@ async function handle(res) {
     // an ephemeral-disk redeploy wiped the DB). Whatever the cause, the right move is a clean
     // re-login rather than leaving the user stuck on a page silently no-op'ing every request.
     if (res.status === 401) {
-      localStorage.removeItem("studysager_token");
-      localStorage.removeItem("studysager_username");
+      sessionStorage.removeItem("studysager_token");
+      sessionStorage.removeItem("studysager_username");
       if (!location.pathname.startsWith("/login")) {
         location.reload();
       }
