@@ -1,3 +1,16 @@
+import sys
+try:
+    # Debian slim's system sqlite3 is older than the 3.35+ that chromadb requires. pysqlite3-binary
+    # ships a modern statically-linked sqlite3 build; swapping it into sys.modules BEFORE anything
+    # (langchain-chroma/chromadb included) imports the stdlib sqlite3 module makes every downstream
+    # `import sqlite3` transparently get the newer build instead. Must be the very first thing that
+    # runs in this file - any import above this would import the old sqlite3 first and it'd be too
+    # late. Only installed on Linux x86_64 (see requirements.txt), so this no-ops on Mac/dev.
+    __import__("pysqlite3")
+    sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
+except ImportError:
+    pass
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import CORS_ORIGINS
