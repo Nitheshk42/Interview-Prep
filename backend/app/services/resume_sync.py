@@ -43,37 +43,53 @@ Jenkins, React, SQL Server, Hadoop - whatever genuinely appears). For EACH one, 
 - Then, for EVERY client/company/project (in the format the resume uses) where this tool was
   actually used, most recent first, write a REAL, SPEAKABLE answer - 2 to 3 full sentences, not
   one fragment - that a candidate could say out loud verbatim if a vendor asked "what did you do
-  with this there?" Each one must cover, using specifics pulled straight from that client's
-  bullet points/context in the resume:
+  with this there?" Each one must cover:
     1. What was actually built or the problem solved (the concrete deliverable, not "worked on
        data pipelines").
-    2. The specific sub-components/ecosystem pieces used if the resume shows them (e.g. for
-       Hadoop: HDFS, Hive, YARN, MapReduce, Sqoop - whichever the resume actually names; for AWS:
-       which specific services).
-    3. Scale, data volume, team size, or frequency if the resume states or implies any of it.
+    2. The specific sub-components/ecosystem pieces used if identifiable (e.g. for Hadoop: HDFS,
+       Hive, YARN, MapReduce, Sqoop; for AWS: which specific services).
+    3. Scale, data volume, team size, or frequency if known or reasonably implied.
+
+  TWO SOURCES OF TRUTH, use both, and be explicit about which one you used:
+  a) EXPLICIT - the resume directly describes what this tool did in that role's bullet points.
+     Use those specifics verbatim/near-verbatim. Mark this entry INFERRED: no.
+  b) INFERRED - the resume only lists the tool in a skills line for that role, with no dedicated
+     bullet describing it, BUT that role has OTHER bullet points describing the broader
+     project/system, the client's industry, the team's responsibilities, or other tools used
+     alongside it. In that much more common case, DO NOT give up and say "no detail" - reason
+     from that surrounding context the way the candidate themselves would when reconstructing a
+     memory: "I was building X system in the Y industry using these other tools, so realistically
+     this tool's role in that same system was probably Z." Write the same 2-3 sentence speakable
+     answer using that reasoning, grounded in what the role's other bullets actually say, not
+     invented from nothing. Mark this entry INFERRED: yes, and end the DETAIL with one short
+     clause flagging it as a reconstruction to verify, e.g. "...(this isn't spelled out
+     explicitly for this client, so confirm it matches your actual memory before repeating it)."
+  Only fall back to a plain "the resume doesn't give enough context to reconstruct this" when a
+  client's role has genuinely NO other bullets/context to reason from at all (rare - a skills-only
+  listing with zero role description anywhere for that entry). Mark that INFERRED: yes too.
+
   Never write the same description twice for two different clients even if the resume's phrasing
   for them is similar - find the real distinguishing detail (different data source, different
-  scale, different part of the pipeline, different team's need). If the resume genuinely gives no
-  detail beyond listing the tool for that client, say so plainly (e.g. "The resume lists Hadoop
-  under this role's skills but doesn't detail specific usage - be ready to speak to it from
-  memory or lean on a client where the resume does have detail") rather than fabricating specifics
-  that aren't there.
+  scale, different part of the pipeline, different team's need, different industry).
 
-Do NOT invent a tool that isn't actually in the resume. Do NOT invent ecosystem components,
-scale, or specifics the resume doesn't support - ground everything in what's actually written,
-and be honest in the DETAIL when it isn't there. Do NOT skip a tool just because it only appears
-once - list it with whatever real duration/client that one appearance supports. Order the list
-with the tools used most extensively (longest total experience) first.
+Do NOT invent a tool that isn't actually in the resume. For EXPLICIT entries, do not invent
+specifics beyond what's written. For INFERRED entries, reasoning from the role's real surrounding
+context is expected and encouraged - that's the whole point - but never invent a company, metric,
+or system that doesn't appear anywhere in the resume. Do NOT skip a tool just because it only
+appears once - list it with whatever real duration/client that one appearance supports. Order the
+list with the tools used most extensively (longest total experience) first.
 
 Respond with each tool as a block in EXACTLY this format, separated by ===, nothing else, no
-extra commentary. Repeat the CLIENT/DETAIL pair once per client that tool was used at:
+extra commentary. Repeat the CLIENT/INFERRED/DETAIL trio once per client that tool was used at:
 
 TOOL: <tool name>
 EXPERIENCE: <total time>
 LEVEL: <Beginner|Intermediate|Advanced|Expert>
 CLIENT: <Client A>
+INFERRED: <yes|no>
 DETAIL: <2-3 full, speakable sentences - what was built, ecosystem pieces used, scale if known>
 CLIENT: <Client B>
+INFERRED: <yes|no>
 DETAIL: <2-3 full, speakable sentences - what was built, ecosystem pieces used, scale if known>
 ===
 
@@ -97,10 +113,10 @@ def generate_tool_breakdown(resume_text: str, provider: str = "groq"):
 
 
 def _parse_tool_breakdown(raw: str):
-    """Each tool block now has repeated CLIENT:/DETAIL: line pairs (DETAIL can span multiple
-    lines - it's 2-3 full sentences, not a one-liner) instead of the old single semicolon-joined
-    USAGE: line, since real sentences can contain semicolons/colons themselves and would have
-    broken that format."""
+    """Each tool block has repeated CLIENT:/INFERRED:/DETAIL: line trios (DETAIL can span
+    multiple lines - it's 2-3 full sentences, not a one-liner). INFERRED distinguishes an answer
+    the resume states directly from one reconstructed from the role's surrounding context - see
+    TOOL_BREAKDOWN_TEMPLATE's "two sources of truth" instructions."""
     tools = []
     for block in raw.split("==="):
         tool_match = re.search(r"TOOL:\s*(.+)", block)
@@ -112,16 +128,19 @@ def _parse_tool_breakdown(raw: str):
         if not tool or tool.lower() in ("tool", "none", "n/a"):
             continue
 
-        # Each CLIENT: line starts a new entry; everything under its DETAIL: (including extra
+        # Each CLIENT: line starts a new entry; INFERRED: is optional (older cached syncs won't
+        # have it - defaults to False rather than breaking); everything under DETAIL: (including
         # wrapped lines) belongs to that client, up until the next CLIENT: line or end of block.
         usages = []
-        for client_match, detail_text in re.findall(
-            r"CLIENT:\s*(.+?)\s*\nDETAIL:\s*(.+?)(?=\n\s*CLIENT:|\Z)", block, re.DOTALL
+        for client_match, inferred_match, detail_text in re.findall(
+            r"CLIENT:\s*(.+?)\s*\n(?:INFERRED:\s*(.+?)\s*\n)?DETAIL:\s*(.+?)(?=\n\s*CLIENT:|\Z)",
+            block, re.DOTALL,
         ):
             client = client_match.strip()
             detail = " ".join(detail_text.split())  # collapse wrapped newlines/whitespace
+            inferred = inferred_match.strip().lower().startswith("y") if inferred_match else False
             if client:
-                usages.append({"client": client, "detail": detail})
+                usages.append({"client": client, "detail": detail, "inferred": inferred})
 
         tools.append({
             "tool": tool,

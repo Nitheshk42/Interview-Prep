@@ -205,7 +205,17 @@ function ToolCard({ tool }) {
             <div className="space-y-3">
               {usages.map((u, idx) => (
                 <div key={idx} className="border-l-2 border-gray-200 pl-3">
-                  <p className="text-sm font-medium text-gray-800 mb-0.5">{u.client}</p>
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <p className="text-sm font-medium text-gray-800">{u.client}</p>
+                    {u.inferred && (
+                      <span
+                        className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700"
+                        title="Reconstructed from the role's surrounding context, not a direct line in the resume - confirm it matches your actual memory before repeating it on a call."
+                      >
+                        🧩 inferred — verify
+                      </span>
+                    )}
+                  </div>
                   <p className="text-sm text-gray-600 leading-relaxed">
                     {u.detail || <span className="italic text-gray-400">Listed for this client, no further detail in the resume.</span>}
                   </p>
