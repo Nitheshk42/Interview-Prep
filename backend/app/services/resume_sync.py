@@ -100,11 +100,16 @@ def generate_tool_breakdown(resume_text: str, provider: str = "groq"):
     """Returns (tools: list[dict], truncated: bool). Each tool dict has tool/experience/level and
     usages: list[{client, detail}] - the per-client breakdown of how that tool was actually used,
     since the same tool is rarely used identically across different client engagements."""
-    # Raised (2200 -> 3200 -> 7000 -> 9000). Each client entry is now 2-3 full sentences instead
-    # of one fragment - a resume with 15-20+ tools across several clients each needs real headroom
-    # for that. Completeness over token frugality during testing: still a small fraction of the
-    # 100K/day budget, and a partial/truncated tool list defeats the entire point of the feature.
-    llm = get_llm(provider=provider, temperature=0.2, max_tokens=9000)
+    # IMPORTANT - this is capped by a DIFFERENT limit than the 100K/day figure elsewhere in this
+    # file: Groq's free/on_demand tier also enforces a hard 12,000 TOKENS PER REQUEST ceiling
+    # (prompt + max_tokens combined), independent of the daily budget. This endpoint sends the
+    # FULL resume text as input (this template + a real resume commonly runs ~7-8K tokens on its
+    # own), so max_tokens has to leave real headroom under 12,000 rather than being pushed as high
+    # as the daily budget alone would allow - a request that exceeds it fails outright with a 413,
+    # not a graceful truncation. 9000 was too high (a real request hit 16,395 total and got
+    # rejected); this is set conservatively enough that prompt + max_tokens stays under the cap
+    # for realistically long resumes.
+    llm = get_llm(provider=provider, temperature=0.2, max_tokens=4000)
     prompt = ChatPromptTemplate.from_template(TOOL_BREAKDOWN_TEMPLATE)
     messages = prompt.format_messages(resume_text=resume_text)
     result, truncated = invoke_and_check_truncation(llm, messages)
@@ -214,8 +219,12 @@ Begin now:"""
 
 def generate_vendor_qa(resume_text: str, jd_text: str, provider: str = "groq", num_questions: int = 8):
     """Returns (items: list[dict], truncated: bool). Each item has category/question/answer."""
-    # Raised (3200 -> 4500) - 8 full Q&A pairs per call; completeness over frugality during testing.
-    llm = get_llm(provider=provider, temperature=0.4, max_tokens=4500)
+    # Same Groq 12,000-tokens-per-request ceiling applies here as generate_tool_breakdown above
+    # (see that function's comment) - this call also sends the FULL resume text as input, plus
+    # the JD on top, so max_tokens needs real headroom under 12,000 rather than being pushed to
+    # the daily-budget ceiling alone. Pulled back from 4500 as a precaution before it fails the
+    # same way on a long resume + long JD.
+    llm = get_llm(provider=provider, temperature=0.4, max_tokens=3200)
     prompt = ChatPromptTemplate.from_template(VENDOR_QA_TEMPLATE)
     messages = prompt.format_messages(resume_text=resume_text, jd_text=jd_text, num_questions=num_questions)
     result, truncated = invoke_and_check_truncation(llm, messages)

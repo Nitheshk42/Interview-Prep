@@ -17,8 +17,39 @@ from app.services.resume_sync import generate_tool_breakdown, generate_vendor_qa
 router = APIRouter(prefix="/resume-sync", tags=["resume-sync"])
 
 
+def _call_llm_or_friendly_error(fn, *args, **kwargs):
+    """Both endpoints below send the full resume text as input, which makes them the two calls
+    in the app most likely to hit Groq's hard 12,000-tokens-PER-REQUEST ceiling (a real, longer
+    resume can genuinely fill most of that on input alone). That failure comes back from the Groq
+    SDK as a raw exception, which - left uncaught - becomes an unhandled 500, and a 500 strips
+    CORS headers, which is what actually caused the confusing "blocked by CORS policy" error a
+    user saw in the browser console (the request never had a CORS problem; it had a token-limit
+    problem that crashed before a response could be built at all). Catching it here and returning
+    a real HTTPException means the user sees an honest, actionable message instead of that."""
+    try:
+        return fn(*args, **kwargs)
+    except Exception as exc:
+        message = str(exc)
+        if "413" in message or "rate_limit_exceeded" in message or "tokens per minute" in message.lower():
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    "Your resume is too long for one request on the current Answer engine's free "
+                    "tier. Try switching the Answer engine in the sidebar (Gemini doesn't have "
+                    "this same per-request limit), or trim your resume and try again."
+                ),
+            )
+        raise
+
+
 class ToolBreakdownRequest(BaseModel):
     provider: str = "groq"
+
+
+class ToolUsage(BaseModel):
+    client: str
+    detail: str = ""
+    inferred: bool = False
 
 
 class ToolItem(BaseModel):
@@ -26,6 +57,12 @@ class ToolItem(BaseModel):
     experience: str
     level: str
     clients: list[str]
+    # This was missing before - FastAPI's response_model silently drops any dict key not
+    # declared on the Pydantic model, so every FRESH sync was losing the per-client usage detail
+    # right here even though generate_tool_breakdown() produced it correctly. It only ever showed
+    # up when reopening an old *cached* session, because that path reads the raw stored JSON
+    # directly (see chat_sessions.py's get_session) and never passes through this model at all.
+    usages: list[ToolUsage] = []
 
 
 class ToolBreakdownResponse(BaseModel):
@@ -39,7 +76,7 @@ def tool_breakdown(payload: ToolBreakdownRequest, username: str = Depends(get_cu
     if not resume_text.strip():
         raise HTTPException(status_code=400, detail="No processed resume found. Please complete onboarding first.")
 
-    tools, truncated = generate_tool_breakdown(resume_text, provider=payload.provider)
+    tools, truncated = _call_llm_or_friendly_error(generate_tool_breakdown, resume_text, provider=payload.provider)
     if not tools:
         raise HTTPException(
             status_code=502,
@@ -89,8 +126,9 @@ def vendor_qa(payload: VendorQaRequest, username: str = Depends(get_current_user
     if not resume_text.strip():
         raise HTTPException(status_code=400, detail="No processed resume found. Please complete onboarding first.")
 
-    items, truncated = generate_vendor_qa(
-        resume_text, payload.jd_text, provider=payload.provider, num_questions=payload.num_questions
+    items, truncated = _call_llm_or_friendly_error(
+        generate_vendor_qa,
+        resume_text, payload.jd_text, provider=payload.provider, num_questions=payload.num_questions,
     )
     if not items:
         raise HTTPException(
