@@ -6,10 +6,17 @@ import { useState, useEffect, useMemo } from "react";
 // call, so revisiting something you already asked costs zero tokens. Search matches the chat
 // title, every question asked, and every generated answer - also no LLM call, just a plain
 // substring match on the backend, so searching is free too.
+//
+// Responsive: self-contained, so every page that already renders <ChatHistoryPanel /> gets this
+// for free with no changes needed there. Below the `lg` breakpoint the panel is hidden by
+// default and opens as a slide-out drawer via its own small floating toggle button, instead of
+// permanently eating a fixed column of a phone-width screen. At `lg`+ it's a normal static
+// column, same as before.
 export default function ChatHistoryPanel({ sessions, activeSessionId, onNewChat, onSelect, onDelete, onRename, onSearch }) {
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState("");
   const [query, setQuery] = useState("");
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   // Debounced so typing doesn't fire a request per keystroke.
   useEffect(() => {
@@ -30,11 +37,40 @@ export default function ChatHistoryPanel({ sessions, activeSessionId, onNewChat,
     setRenamingId(null);
   }
 
+  // Closing after picking/starting a chat only matters on mobile (setMobileOpen has no visible
+  // effect at `lg`+ since the drawer classes are forced open there regardless of state).
+  function selectAndClose(id) {
+    onSelect(id);
+    setMobileOpen(false);
+  }
+
+  function newChatAndClose() {
+    onNewChat();
+    setMobileOpen(false);
+  }
+
   return (
-    <div className="w-56 shrink-0 border-r border-gray-200 flex flex-col h-full">
+    <>
       <button
         type="button"
-        onClick={onNewChat}
+        onClick={() => setMobileOpen(true)}
+        aria-label="Open chat history"
+        className="lg:hidden fixed bottom-4 left-4 z-30 w-11 h-11 rounded-full bg-white border border-gray-200 shadow-md text-lg flex items-center justify-center"
+      >
+        🕘
+      </button>
+      {mobileOpen && (
+        <div className="fixed inset-0 bg-black/30 z-30 lg:hidden" onClick={() => setMobileOpen(false)} />
+      )}
+      <div
+        className={`w-56 shrink-0 border-r border-gray-200 bg-white flex flex-col h-full
+          fixed inset-y-0 left-0 z-40 transform transition-transform duration-200
+          ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
+          lg:static lg:translate-x-0 lg:z-auto`}
+      >
+      <button
+        type="button"
+        onClick={newChatAndClose}
         className="mx-2 mt-2 text-sm font-medium border border-gray-300 rounded-lg py-2 hover:bg-gray-50 transition"
       >
         ➕ New chat
@@ -74,7 +110,7 @@ export default function ChatHistoryPanel({ sessions, activeSessionId, onNewChat,
                   onCommitRename={commitRename}
                   onCancelRename={() => setRenamingId(null)}
                   onStartRename={() => startRename(s)}
-                  onSelect={() => onSelect(s.id)}
+                  onSelect={() => selectAndClose(s.id)}
                   onDelete={() => onDelete(s.id)}
                 />
               ))}
@@ -82,7 +118,8 @@ export default function ChatHistoryPanel({ sessions, activeSessionId, onNewChat,
           </div>
         ))}
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 

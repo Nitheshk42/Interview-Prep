@@ -188,13 +188,13 @@ function ToolCard({ tool }) {
       {usages.length === 0 ? (
         <p className="text-xs text-gray-400 mt-2">No specific client tied to this in the resume.</p>
       ) : (
-        <div className="mt-2 space-y-1.5">
+        <div className="mt-3 space-y-3">
           {usages.map((u, idx) => (
-            <div key={idx} className="flex gap-2 text-sm">
-              <span className="font-medium text-gray-800 shrink-0">{u.client}:</span>
-              <span className="text-gray-600">
+            <div key={idx} className="border-l-2 border-gray-200 pl-3">
+              <p className="text-sm font-medium text-gray-800 mb-0.5">{u.client}</p>
+              <p className="text-sm text-gray-600 leading-relaxed">
                 {u.detail || <span className="italic text-gray-400">Listed for this client, no further detail in the resume.</span>}
-              </span>
+              </p>
             </div>
           ))}
         </div>

@@ -13,10 +13,13 @@ import ResumeSyncPage from "./pages/ResumeSyncPage";
 import Sidebar from "./components/Sidebar";
 import { DEFAULT_SECTION } from "./sections";
 
+const KNOWN_SECTIONS = ["resume_sync", "chat", "hybrid", "level", "jd", "general_jd", "tailor"];
+
 function Gated() {
   const { token, profile, refreshProfile } = useAuth();
   const [checked, setChecked] = useState(false);
   const [section, setSection] = useState(DEFAULT_SECTION);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
     if (token && profile === null) {
@@ -33,19 +36,39 @@ function Gated() {
 
   return (
     <div className="flex">
-      <Sidebar section={section} onSectionChange={setSection} />
-      <main className="flex-1">
-        {section === "resume_sync" && <ResumeSyncPage />}
-        {section === "chat" && <ChatPage />}
-        {section === "hybrid" && <HybridChatPage />}
-        {section === "level" && <LevelChatPage />}
-        {section === "jd" && <JdChatPage />}
-        {section === "general_jd" && <GeneralJdChatPage />}
-        {section === "tailor" && <ResumeTailorPage />}
-        {!["resume_sync", "chat", "hybrid", "level", "jd", "general_jd", "tailor"].includes(section) && (
-          <div className="p-10 text-gray-400">This section isn't built yet — coming soon.</div>
-        )}
-      </main>
+      <Sidebar
+        section={section}
+        onSectionChange={setSection}
+        mobileOpen={mobileNavOpen}
+        onMobileClose={() => setMobileNavOpen(false)}
+      />
+      <div className="flex-1 min-w-0">
+        {/* Mobile-only top bar - the hamburger is the only way to reach the sidebar/section nav
+            below the `lg` breakpoint, since the sidebar itself is off-canvas until opened. */}
+        <div className="lg:hidden flex items-center gap-3 border-b border-gray-200 bg-white px-3 py-2.5 sticky top-0 z-20">
+          <button
+            type="button"
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Open menu"
+            className="text-xl leading-none px-1.5 py-1 rounded-lg hover:bg-gray-100 transition"
+          >
+            ☰
+          </button>
+          <p className="text-sm font-medium text-gray-900 truncate">StudySager</p>
+        </div>
+        <main className="flex-1">
+          {section === "resume_sync" && <ResumeSyncPage />}
+          {section === "chat" && <ChatPage />}
+          {section === "hybrid" && <HybridChatPage />}
+          {section === "level" && <LevelChatPage />}
+          {section === "jd" && <JdChatPage />}
+          {section === "general_jd" && <GeneralJdChatPage />}
+          {section === "tailor" && <ResumeTailorPage />}
+          {!KNOWN_SECTIONS.includes(section) && (
+            <div className="p-10 text-gray-400">This section isn't built yet — coming soon.</div>
+          )}
+        </main>
+      </div>
     </div>
   );
 }

@@ -96,8 +96,19 @@ def create_vector_store(docs, embeddings=None, username: str = None):
 
 def get_vectorstore(username: str = None):
     """Load this user's existing vector store, if any. On a cold start where the local disk is
-    empty, first tries to restore a previously-backed-up snapshot from GCS (if configured) into a
-    fresh versioned directory before giving up and returning None."""
+    empty (e.g. a Render redeploy or free-tier spin-down wiped it - the local disk is ephemeral,
+    unlike the Postgres-backed account/profile data), tries two recovery paths in order before
+    giving up and returning None:
+
+    1. Restore a previously-backed-up snapshot from GCS, if configured (fast - already-embedded,
+       no API calls).
+    2. Rebuild from the plain resume text saved in Postgres during onboarding (see
+       onboarding.py's process_resume() / db.set_resume_text()). This re-embeds via the
+       embeddings API, so it's slower and does cost API usage - but it happens silently, once,
+       and the result is immediately persisted (and GCS-backed up if configured) so every
+       following request in this process hits path 1 or the fast local-disk case instead. The
+       alternative - returning None here - is what used to make a user's resume "disappear" and
+       force a manual re-upload even though nothing about their account was actually lost."""
     user_dir = _user_dir(username)
     current = _read_current(user_dir)
 
@@ -108,7 +119,28 @@ def get_vectorstore(username: str = None):
             _write_current(user_dir, version_dir)
             current = version_dir
 
+    if not current:
+        current = _rebuild_from_stored_text(username)
+
     if current:
         embeddings = get_embeddings()
         return Chroma(persist_directory=current, embedding_function=embeddings)
     return None
+
+
+def _rebuild_from_stored_text(username: str = None) -> str | None:
+    """Last-resort recovery: re-embeds the resume text saved in Postgres during onboarding, if
+    any, and persists the result exactly like a fresh create_vector_store() call would. Returns
+    the new version directory path, or None if there's no stored text to rebuild from (e.g. this
+    user genuinely never uploaded a resume)."""
+    from app import db
+    from langchain_core.documents import Document
+    from app.services.text_splitter import split_documents
+
+    resume_text = db.get_resume_text(username)
+    if not resume_text:
+        return None
+
+    splits = split_documents([Document(page_content=resume_text)])
+    create_vector_store(splits, username=username)
+    return _read_current(_user_dir(username))

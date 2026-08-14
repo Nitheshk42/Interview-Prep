@@ -58,6 +58,13 @@ def process_resume(file_path_and_names: list[tuple[str, bytes]], username: str):
     create_vector_store(splits, embeddings_model, username=username)
     db.mark_resume_uploaded(username)
 
+    # Postgres persists across redeploys; the local disk (where the vector store above just got
+    # written) doesn't - it's wiped on every Render redeploy/free-tier spin-down. Saving the plain
+    # text here means the vector store can be silently rebuilt from it later if the local disk
+    # copy vanishes, instead of the user hitting a dead end and having to re-upload their resume.
+    full_text = "\n".join(doc.page_content for doc in documents)
+    db.set_resume_text(username, full_text)
+
     # Cloud Run's local disk is ephemeral - back the raw resume file up to GCS right after
     # processing so a later cold-start instance (or this one restarting) can restore it. No-op
     # locally where GCS_BUCKET_NAME isn't set.

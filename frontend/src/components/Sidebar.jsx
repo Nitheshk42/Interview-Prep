@@ -9,7 +9,13 @@ import { SECTIONS, PHASE_LABELS } from "../sections";
 // upload/feedback/logout controls - which used to sit as a wall of always-visible inputs at the
 // bottom - collapsed into a small icon row. Feedback opens a small popover instead of a
 // permanently-open textarea; upload triggers a hidden file input via the icon button.
-export default function Sidebar({ section, onSectionChange }) {
+//
+// Responsive: on screens narrower than the `lg` breakpoint, this renders as a slide-out drawer
+// (App.jsx owns the open/closed state and a hamburger button in a mobile top bar) instead of a
+// permanently-visible column, which would otherwise crush the main content on a phone. At `lg`
+// and above it behaves exactly as before - a normal static column, the mobile-only prop values
+// have no effect.
+export default function Sidebar({ section, onSectionChange, mobileOpen, onMobileClose }) {
   const { username, profile, logout } = useAuth();
   const { provider, setProvider } = useProvider();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -75,8 +81,27 @@ export default function Sidebar({ section, onSectionChange }) {
 
   const initials = (username || "?").slice(0, 2).toUpperCase();
 
+  function selectSection(key) {
+    onSectionChange(key);
+    onMobileClose?.();
+  }
+
   return (
-    <aside className="w-60 shrink-0 border-r border-gray-200 bg-white p-3 flex flex-col gap-5 min-h-screen">
+    <>
+      {/* Backdrop - mobile only, only rendered while the drawer is open. Tapping it closes the
+          drawer, same as tapping outside a modal. */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/30 z-30 lg:hidden"
+          onClick={onMobileClose}
+        />
+      )}
+      <aside
+        className={`w-60 shrink-0 border-r border-gray-200 bg-white p-3 flex flex-col gap-5 min-h-screen
+          fixed inset-y-0 left-0 z-40 transform transition-transform duration-200 overflow-y-auto
+          ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
+          lg:static lg:translate-x-0 lg:z-auto`}
+      >
       <div className="relative" ref={menuRef}>
         <button
           type="button"
@@ -152,7 +177,7 @@ export default function Sidebar({ section, onSectionChange }) {
             </p>
             <div className="space-y-0.5">
               {SECTIONS.filter((s) => s.phase === phase).map((s) => (
-                <SectionButton key={s.key} s={s} section={section} onSectionChange={onSectionChange} />
+                <SectionButton key={s.key} s={s} section={section} onSectionChange={selectSection} />
               ))}
             </div>
           </div>
@@ -162,14 +187,14 @@ export default function Sidebar({ section, onSectionChange }) {
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide px-2 mb-1">Coming soon</p>
             <div className="space-y-0.5">
               {SECTIONS.filter((s) => !s.phase).map((s) => (
-                <SectionButton key={s.key} s={s} section={section} onSectionChange={onSectionChange} />
+                <SectionButton key={s.key} s={s} section={section} onSectionChange={selectSection} />
               ))}
             </div>
           </div>
         )}
       </nav>
-
-    </aside>
+      </aside>
+    </>
   );
 }
 

@@ -16,20 +16,22 @@ from app.services.llm_provider import get_llm, invoke_and_check_truncation
 
 
 TOOL_BREAKDOWN_TEMPLATE = """You are helping a candidate "sync" with their own resume before a
-vendor screening call or interview - they need to be able to state, without hesitation, how much
-experience they have with each tool, and for EACH client where they used it, exactly HOW they
-used it there - because the same tool is almost never used the same way twice: at one client it
-might have been building a real-time ingestion pipeline, at another it might have been automating
-deployments, at another just querying/reporting. A vendor or interviewer who asks "you list Kafka
-at three clients - what did you actually do with it at each one?" needs a real, distinct answer
-for every single client, not one generic blurb repeated three times.
+vendor screening call or interview. Picture the exact moment this is for: a vendor calls and asks
+"do you have experience with Hadoop?" The candidate says "yes, 6 years." The vendor's very next
+question is "where, and what did you actually do with it?" - and a candidate who can only name a
+company, or worse, goes quiet, sounds like they're exaggerating even if they aren't. A candidate
+who can say "at Verizon I used HDFS and Hive to build the ingestion layer for a 2TB/day clickstream
+pipeline that fed our fraud-detection models, then at Best Buy I used it mainly for batch ETL
+staging on top of Hive" sounds like someone who obviously did the work. That second version - real,
+specific, speakable out loud on a call without notes - is what you're building here. One thin
+sentence per client is not enough; it will not survive a follow-up question.
 
 RESUME:
 {resume_text}
 
 Go through this resume and identify EVERY distinct tool, technology, language, platform,
 framework, or methodology actually mentioned (e.g. Java, Kafka, AWS, Kubernetes, Agile/Scrum,
-Jenkins, React, SQL Server - whatever genuinely appears). For EACH one, work out:
+Jenkins, React, SQL Server, Hadoop - whatever genuinely appears). For EACH one, work out:
 
 - EXPERIENCE: total time used, estimated from the date ranges of the client/project entries
   where it appears (e.g. "3 years 2 months" or "2+ years" if ranges are approximate). If a tool
@@ -38,27 +40,41 @@ Jenkins, React, SQL Server - whatever genuinely appears). For EACH one, work out
 - LEVEL: one of Beginner / Intermediate / Advanced / Expert, judged from how central the tool was
   to the role, how long it was used, and how deeply it's described (not just whether it's
   mentioned once in a skills list).
-- USAGE: every client/company/project (in the format the resume uses) where this tool was
-  actually used, most recent first - and for EACH one, one specific sentence describing what it
-  was actually used FOR at that client: what was built, what problem it solved, what it
-  connected to or fed into. Pull the specifics straight from that client's bullet points/context
-  in the resume - never write the same description twice for two different clients even if the
-  resume phrasing is similar; find the real distinguishing detail (different data source, different
-  scale, different part of the pipeline, different team's need) or say plainly that the resume
-  only shows it listed as a skill with no further detail for that client, rather than fabricating
-  one.
+- Then, for EVERY client/company/project (in the format the resume uses) where this tool was
+  actually used, most recent first, write a REAL, SPEAKABLE answer - 2 to 3 full sentences, not
+  one fragment - that a candidate could say out loud verbatim if a vendor asked "what did you do
+  with this there?" Each one must cover, using specifics pulled straight from that client's
+  bullet points/context in the resume:
+    1. What was actually built or the problem solved (the concrete deliverable, not "worked on
+       data pipelines").
+    2. The specific sub-components/ecosystem pieces used if the resume shows them (e.g. for
+       Hadoop: HDFS, Hive, YARN, MapReduce, Sqoop - whichever the resume actually names; for AWS:
+       which specific services).
+    3. Scale, data volume, team size, or frequency if the resume states or implies any of it.
+  Never write the same description twice for two different clients even if the resume's phrasing
+  for them is similar - find the real distinguishing detail (different data source, different
+  scale, different part of the pipeline, different team's need). If the resume genuinely gives no
+  detail beyond listing the tool for that client, say so plainly (e.g. "The resume lists Hadoop
+  under this role's skills but doesn't detail specific usage - be ready to speak to it from
+  memory or lean on a client where the resume does have detail") rather than fabricating specifics
+  that aren't there.
 
-Do NOT invent a tool that isn't actually in the resume. Do NOT skip a tool just because it only
-appears once - list it with whatever real duration/client that one appearance supports. Order
-the list with the tools used most extensively (longest total experience) first.
+Do NOT invent a tool that isn't actually in the resume. Do NOT invent ecosystem components,
+scale, or specifics the resume doesn't support - ground everything in what's actually written,
+and be honest in the DETAIL when it isn't there. Do NOT skip a tool just because it only appears
+once - list it with whatever real duration/client that one appearance supports. Order the list
+with the tools used most extensively (longest total experience) first.
 
 Respond with each tool as a block in EXACTLY this format, separated by ===, nothing else, no
-extra commentary:
+extra commentary. Repeat the CLIENT/DETAIL pair once per client that tool was used at:
 
 TOOL: <tool name>
 EXPERIENCE: <total time>
 LEVEL: <Beginner|Intermediate|Advanced|Expert>
-USAGE: <Client A> :: <specific one-sentence description of how it was used there>; <Client B> :: <specific one-sentence description of how it was used there>
+CLIENT: <Client A>
+DETAIL: <2-3 full, speakable sentences - what was built, ecosystem pieces used, scale if known>
+CLIENT: <Client B>
+DETAIL: <2-3 full, speakable sentences - what was built, ecosystem pieces used, scale if known>
 ===
 
 Begin now:"""
@@ -68,12 +84,11 @@ def generate_tool_breakdown(resume_text: str, provider: str = "groq"):
     """Returns (tools: list[dict], truncated: bool). Each tool dict has tool/experience/level and
     usages: list[{client, detail}] - the per-client breakdown of how that tool was actually used,
     since the same tool is rarely used identically across different client engagements."""
-    # Raised (2200 -> 3200 -> 7000). A resume with 15-20+ tools, each with several clients and a
-    # real per-client usage sentence now (not just a client name), needs a lot more headroom than
-    # before - this was the endpoint actually observed truncating mid-list. Completeness over
-    # token frugality during testing: one sync at 7000 tokens is still a small fraction of the
-    # 100K/day budget, and a partial tool list defeats the entire point of the feature.
-    llm = get_llm(provider=provider, temperature=0.2, max_tokens=7000)
+    # Raised (2200 -> 3200 -> 7000 -> 9000). Each client entry is now 2-3 full sentences instead
+    # of one fragment - a resume with 15-20+ tools across several clients each needs real headroom
+    # for that. Completeness over token frugality during testing: still a small fraction of the
+    # 100K/day budget, and a partial/truncated tool list defeats the entire point of the feature.
+    llm = get_llm(provider=provider, temperature=0.2, max_tokens=9000)
     prompt = ChatPromptTemplate.from_template(TOOL_BREAKDOWN_TEMPLATE)
     messages = prompt.format_messages(resume_text=resume_text)
     result, truncated = invoke_and_check_truncation(llm, messages)
@@ -82,31 +97,31 @@ def generate_tool_breakdown(resume_text: str, provider: str = "groq"):
 
 
 def _parse_tool_breakdown(raw: str):
+    """Each tool block now has repeated CLIENT:/DETAIL: line pairs (DETAIL can span multiple
+    lines - it's 2-3 full sentences, not a one-liner) instead of the old single semicolon-joined
+    USAGE: line, since real sentences can contain semicolons/colons themselves and would have
+    broken that format."""
     tools = []
     for block in raw.split("==="):
         tool_match = re.search(r"TOOL:\s*(.+)", block)
         exp_match = re.search(r"EXPERIENCE:\s*(.+)", block)
         level_match = re.search(r"LEVEL:\s*(.+)", block)
-        usage_match = re.search(r"USAGE:\s*(.+)", block)
         if not (tool_match and exp_match and level_match):
             continue
         tool = tool_match.group(1).strip()
         if not tool or tool.lower() in ("tool", "none", "n/a"):
             continue
 
+        # Each CLIENT: line starts a new entry; everything under its DETAIL: (including extra
+        # wrapped lines) belongs to that client, up until the next CLIENT: line or end of block.
         usages = []
-        if usage_match:
-            for entry in usage_match.group(1).split(";"):
-                entry = entry.strip().rstrip(",")
-                if not entry:
-                    continue
-                if "::" in entry:
-                    client, detail = entry.split("::", 1)
-                    usages.append({"client": client.strip(), "detail": detail.strip()})
-                elif entry:
-                    # Model didn't include a "::" separator for this entry - still surface the
-                    # client name rather than silently dropping it.
-                    usages.append({"client": entry.strip(), "detail": ""})
+        for client_match, detail_text in re.findall(
+            r"CLIENT:\s*(.+?)\s*\nDETAIL:\s*(.+?)(?=\n\s*CLIENT:|\Z)", block, re.DOTALL
+        ):
+            client = client_match.strip()
+            detail = " ".join(detail_text.split())  # collapse wrapped newlines/whitespace
+            if client:
+                usages.append({"client": client, "detail": detail})
 
         tools.append({
             "tool": tool,

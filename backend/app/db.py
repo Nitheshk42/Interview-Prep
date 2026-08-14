@@ -26,6 +26,12 @@ profiles = Table(
     Column("level", String(50)),
     Column("resume_uploaded", Integer, server_default="0"),
     Column("favorite_tabs", Text, server_default=""),
+    # Plain extracted resume text (not the file itself) - kept here so the vector store can be
+    # silently rebuilt from it on a cold start where the local disk (and its Chroma files) got
+    # wiped, e.g. a Render redeploy or free-tier spin-down. Without this, a user's resume
+    # "vanishes" until they manually re-upload, even though their account/profile persisted fine
+    # in Postgres - see vector_store.py's get_vectorstore() for the rebuild-on-demand logic.
+    Column("resume_text", Text),
 )
 
 feedback = Table(
@@ -72,9 +78,24 @@ def init_db():
     try:
         _metadata.create_all(_engine)
     except Exception as exc:
-        if "already exists" in str(exc).lower():
-            return
-        raise
+        if "already exists" not in str(exc).lower():
+            raise
+
+    # create_all() only creates whole tables that don't exist yet - it never ALTERs an existing
+    # table to add a column defined after that table was first created (e.g. profiles.resume_text,
+    # added after the "profiles" table already existed in production Postgres). Each ALTER is
+    # wrapped individually so one already-applied migration doesn't block the next, and a
+    # column that already exists (re-running this on every boot, across workers) is a no-op.
+    migrations = [
+        "ALTER TABLE profiles ADD COLUMN resume_text TEXT",
+    ]
+    for stmt in migrations:
+        try:
+            with _engine.begin() as conn:
+                conn.execute(text(stmt))
+        except Exception as exc:
+            if "already exists" not in str(exc).lower() and "duplicate column" not in str(exc).lower():
+                raise
 
 
 def _now() -> str:
@@ -255,6 +276,25 @@ def get_profile(username: str) -> dict:
 def set_profile_level(username: str, level: str):
     with _engine.begin() as conn:
         conn.execute(text("UPDATE profiles SET level = :level WHERE username = :username"), {"level": level, "username": username})
+
+
+def set_resume_text(username: str, resume_text: str):
+    """Stores the plain extracted resume text in Postgres (durable) so the vector store can be
+    silently rebuilt from it later if the local disk copy gets wiped - see get_resume_text()."""
+    with _engine.begin() as conn:
+        conn.execute(
+            text("UPDATE profiles SET resume_text = :resume_text WHERE username = :username"),
+            {"resume_text": resume_text, "username": username},
+        )
+
+
+def get_resume_text(username: str) -> str | None:
+    with _engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT resume_text FROM profiles WHERE username = :username"),
+            {"username": username},
+        ).fetchone()
+        return row[0] if row and row[0] else None
 
 
 def set_favorite_tabs(username: str, tabs: list[str]):
