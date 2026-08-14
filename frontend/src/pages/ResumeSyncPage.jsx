@@ -108,8 +108,8 @@ function ToolSyncTab() {
         setTools(null);
       }
       refreshSessions();
-    } catch {
-      // ignore
+    } catch (err) {
+      setError(err.message || "Couldn't delete that chat — try again.");
     }
   }
 
@@ -117,8 +117,8 @@ function ToolSyncTab() {
     try {
       await api.renameSession(sessionId, title);
       refreshSessions();
-    } catch {
-      // ignore
+    } catch (err) {
+      setError(err.message || "Couldn't rename that chat — try again.");
     }
   }
 
@@ -174,29 +174,45 @@ function ToolSyncTab() {
   );
 }
 
+// Collapsed by default - a resume with 15-20+ tools each showing 2-3 sentences per client got
+// very long very fast as an always-expanded list. Click the tool row to expand just that one.
 function ToolCard({ tool }) {
+  const [open, setOpen] = useState(false);
   const usages = tool.usages && tool.usages.length ? tool.usages : (tool.clients || []).map((c) => ({ client: c, detail: "" }));
+
   return (
-    <div className="border border-gray-200 rounded-xl p-4 bg-white">
-      <div className="flex items-center gap-2 flex-wrap mb-1">
+    <div className="border border-gray-200 rounded-xl bg-white overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 flex-wrap px-4 py-3 text-left hover:bg-gray-50 transition"
+      >
+        <span className="text-gray-400 text-xs shrink-0">{open ? "▼" : "▶"}</span>
         <p className="text-sm font-semibold text-gray-900">{tool.tool}</p>
         <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${LEVEL_COLOR[tool.level] || "bg-gray-100 text-gray-600"}`}>
           {tool.level}
         </span>
         <span className="text-xs text-gray-400">{tool.experience} total</span>
-      </div>
-      {usages.length === 0 ? (
-        <p className="text-xs text-gray-400 mt-2">No specific client tied to this in the resume.</p>
-      ) : (
-        <div className="mt-3 space-y-3">
-          {usages.map((u, idx) => (
-            <div key={idx} className="border-l-2 border-gray-200 pl-3">
-              <p className="text-sm font-medium text-gray-800 mb-0.5">{u.client}</p>
-              <p className="text-sm text-gray-600 leading-relaxed">
-                {u.detail || <span className="italic text-gray-400">Listed for this client, no further detail in the resume.</span>}
-              </p>
+        <span className="text-xs text-gray-400 ml-auto">
+          {usages.length} client{usages.length !== 1 ? "s" : ""}
+        </span>
+      </button>
+      {open && (
+        <div className="px-4 pb-4">
+          {usages.length === 0 ? (
+            <p className="text-xs text-gray-400">No specific client tied to this in the resume.</p>
+          ) : (
+            <div className="space-y-3">
+              {usages.map((u, idx) => (
+                <div key={idx} className="border-l-2 border-gray-200 pl-3">
+                  <p className="text-sm font-medium text-gray-800 mb-0.5">{u.client}</p>
+                  <p className="text-sm text-gray-600 leading-relaxed">
+                    {u.detail || <span className="italic text-gray-400">Listed for this client, no further detail in the resume.</span>}
+                  </p>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>
@@ -278,8 +294,8 @@ function VendorPrepTab() {
         setJdText("");
       }
       refreshSessions();
-    } catch {
-      // ignore
+    } catch (err) {
+      setError(err.message || "Couldn't delete that chat — try again.");
     }
   }
 
@@ -287,8 +303,8 @@ function VendorPrepTab() {
     try {
       await api.renameSession(sessionId, title);
       refreshSessions();
-    } catch {
-      // ignore
+    } catch (err) {
+      setError(err.message || "Couldn't rename that chat — try again.");
     }
   }
 

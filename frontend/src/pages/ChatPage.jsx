@@ -143,7 +143,10 @@ export default function ChatPage() {
         onRename={handleRenameSession}
         onSearch={handleSearch}
       />
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6 max-w-6xl mx-auto flex-1 h-[calc(100vh-2rem)]">
+      {/* The 100vh-based height ignores anything above it in normal flow - on mobile that's the
+          sticky top bar in App.jsx (~56px), so it's subtracted here specifically for < lg; at
+          lg+ there's no top bar, so the calc reverts to the original. */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6 max-w-6xl mx-auto flex-1 h-[calc(100vh-2rem-56px)] lg:h-[calc(100vh-2rem)]">
         <div className="lg:col-span-2 flex flex-col h-full min-h-0">
         <h1 className="text-xl font-medium text-gray-900 mb-1 shrink-0">💬 StudySage Chat</h1>
         <p className="text-sm text-gray-500 mb-4 shrink-0">Ask questions about your processed resume</p>

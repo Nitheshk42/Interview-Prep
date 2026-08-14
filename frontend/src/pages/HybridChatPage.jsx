@@ -128,7 +128,10 @@ export default function HybridChatPage() {
         onRename={handleRenameSession}
         onSearch={handleSearch}
       />
-      <div className="p-6 max-w-6xl mx-auto flex-1 h-[calc(100vh-2rem)] flex flex-col min-h-0">
+      {/* The 100vh-based height ignores anything above it in normal flow - on mobile that's the
+          sticky top bar in App.jsx (~56px), so it's subtracted here specifically for < lg; at
+          lg+ there's no top bar, so the calc reverts to the original. */}
+      <div className="p-6 max-w-6xl mx-auto flex-1 h-[calc(100vh-2rem-56px)] lg:h-[calc(100vh-2rem)] flex flex-col min-h-0">
         <h1 className="text-xl font-medium text-gray-900 mb-1 shrink-0">🔀 Hybrid Chat</h1>
         <p className="text-sm text-gray-500 mb-4 shrink-0">
           Real routing decision + two independently generated answers, so you always have an

@@ -219,12 +219,17 @@ def rename_chat_session(username: str, session_id: int, title: str) -> bool:
 
 
 def delete_chat_session(username: str, session_id: int) -> bool:
+    # Child rows (chat_messages) must go first - chat_messages.session_id is a foreign key to
+    # chat_sessions.id. SQLite doesn't enforce foreign keys by default, so deleting the parent
+    # first silently "worked" locally, but Postgres does enforce them: deleting chat_sessions
+    # while chat_messages still reference it raises a foreign key violation, which rolled back
+    # the whole transaction and made delete silently fail once this moved to Postgres.
     with _engine.begin() as conn:
+        conn.execute(text("DELETE FROM chat_messages WHERE session_id = :id"), {"id": session_id})
         result = conn.execute(
             text("DELETE FROM chat_sessions WHERE id = :id AND username = :username"),
             {"id": session_id, "username": username},
         )
-        conn.execute(text("DELETE FROM chat_messages WHERE session_id = :id"), {"id": session_id})
         return result.rowcount > 0
 
 
