@@ -5,7 +5,7 @@ retrieval, same recency/terminology rules) so both apps answer the same question
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from app.services.llm_provider import get_llm, invoke_and_check_truncation
-from app.services.rag_pipeline import _retrieve, format_docs, _wants_full_resume
+from app.services.rag_pipeline import _retrieve, format_docs, _wants_full_resume, NARRATIVE_STRUCTURE_RULE
 
 TERMINOLOGY_RULE = """TERMINOLOGY DISAMBIGUATION: Some acronyms have multiple meanings (e.g. "RAG" can
 mean "Retrieval-Augmented Generation" in ML/engineering contexts, or "Red/Amber/Green" status
@@ -99,6 +99,8 @@ recent / current role first, oldest role last) - the same order a resume itself 
 Never list oldest-first. If two chunks seem to describe the same job at
 different points, treat them as one entry, not a duplicate to drop.
 
+""" + NARRATIVE_STRUCTURE_RULE + """
+
 LENGTH RULE: Give a genuinely complete answer - typically 150-280 words, more if the question is
 a full enumeration that has to cover several entries. No throat-clearing, no restating the
 question, no generic closing summary. Every sentence must carry a specific fact - cut anything
@@ -172,6 +174,8 @@ ENTIRE context for every distinct company/role entry before answering, and inclu
 - do not stop after the first few you notice. List them in REVERSE CHRONOLOGICAL order (most
 recent / current role first, oldest role last) - the same order a resume itself is written in.
 Never list oldest-first.
+
+""" + NARRATIVE_STRUCTURE_RULE + """
 
 LENGTH RULE: Give a genuinely complete narrative - typically 180-320 words even in narrative
 mode. No throat-clearing, no restating the question, no generic closing summary. Every sentence

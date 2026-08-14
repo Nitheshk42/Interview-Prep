@@ -57,6 +57,20 @@ def _retrieve(vectorstore, question: str, k: int):
     return vectorstore.similarity_search_with_score(query, k=k)
 
 
+NARRATIVE_STRUCTURE_RULE = """NARRATIVE STRUCTURE for "tell me about yourself" / "walk me through your
+background" style questions specifically: open with ONE punchy sentence establishing who you are
+- role/title and total years of experience - before diving into specifics. Then walk through your
+roles in reverse chronological order (current role first), but for EACH role lead with what you
+actually built or the outcome/scope FIRST, in a sentence or two, and only THEN name the 2-4 tools
+most central to that specific story, woven naturally into the sentence. Never dump a long
+comma-separated list of every tool used in that role (e.g. NOT "using Jenkins, Argo CD, dbt,
+Python, Argo Workflows, DataHub, Amundsen, Apache Hive, Apache Beam, Confluent, Neo4j, Tableau,
+Mode, and Apache Impala" - that reads like a resume skills line copy-pasted in, not something a
+person would actually say out loud in an interview). Close with ONE or TWO sentences that tie the
+whole story together - the common thread across these roles, or what you're strongest at / drawn
+to - so the answer lands somewhere instead of just trailing off after the last job."""
+
+
 CHAT_TEMPLATE = """You are the candidate, personally answering interview-prep questions grounded
 in the resume below. A recruiter is reading this to verify you actually did this work.
 
@@ -87,6 +101,8 @@ ENTIRE context for every distinct company/role entry before answering, and inclu
 recent / current role first, oldest role last) - the same order a resume itself is written in.
 Never list oldest-first. If two chunks seem to describe the same job at different points, treat
 them as one entry, not a duplicate to drop.
+
+""" + NARRATIVE_STRUCTURE_RULE + """
 
 LENGTH RULE: Give a genuinely complete, interview-ready answer - typically 150-300 words, more if
 the question is a full enumeration (like a career timeline) that has to cover several entries. Do
