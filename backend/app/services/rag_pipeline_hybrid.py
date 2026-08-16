@@ -292,7 +292,7 @@ ENTIRE context for every distinct entry and include all of them, in REVERSE CHRO
 (most recent/current first, oldest last) - never oldest-first, never incomplete.
 
 DO NOT relabel your actual job title or seniority from the resume - if the resume says "Senior
-Data Engineer," keep that as the real fact. The Junior/Mid/Senior/Architect level below only
+Data Engineer," keep that as the real fact. The ONE seniority level given to you below only
 controls HOW MUCH DEPTH and TECHNICAL VOCABULARY you use in explaining it, not what your real
 title was.
 
@@ -305,11 +305,20 @@ QUESTION: {question}
 
 """ + instruction + """
 
-LENGTH RULE: This tab generates FOUR of these answers per question (one per level), so keep each
-one focused, but still give it real room - roughly 150-230 words. Do not sacrifice real
-mechanics/specificity for length - cut generic connective sentences instead, not the concrete
-details. No throat-clearing, no restating the question, no generic closing summary. Speak as
-yourself, in first person, the whole way through.
+OUTPUT SCOPE - READ THIS CAREFULLY: Write ONLY the single answer for the ONE seniority level
+instructed above. Do not write an answer for any other level, do not label your answer with a
+level name/heading (no "Junior-level answer," no "**Mid-level explanation**," nothing like that),
+do not separate multiple versions with "---" or any other divider, and do not mention that other
+seniority levels exist. Output nothing but that one first-person answer, starting directly with
+the answer itself - as if this were the entire response the app will show, because it is. (Other
+levels ARE shown elsewhere in the app, side by side with this one - but they come from three
+SEPARATE, independent requests, not from you. Writing more than one level here duplicates that
+content and gets it cut off by the length limit before it can even finish one level properly.)
+
+LENGTH RULE: Keep this one answer focused but with real room - roughly 150-230 words. Do not
+sacrifice real mechanics/specificity for length - cut generic connective sentences instead, not
+the concrete details. No throat-clearing, no restating the question, no generic closing summary.
+Speak as yourself, in first person, the whole way through.
 
 Answer:"""
 
