@@ -8,12 +8,12 @@ from langchain_openai import ChatOpenAI
 PROVIDERS = {
     # Both Groq and Gemini free tiers reset every 24 hours, but on SEPARATE quota buckets -
     # so Gemini is a genuinely useful backup once Groq's daily cap is hit, not a duplicate of
-    # the same limit. Groq: ~1K requests/day + 100K tokens/day on llama-3.3-70b. Gemini: 20
-    # requests/day PER MODEL (aistudio.google.com/usage) but plenty of tokens per request.
+    # the same limit. Gemini: 20 requests/day PER MODEL (aistudio.google.com/usage) but plenty
+    # of tokens per request.
     # Ollama/DeepSeek removed from the selector - not actually wired up for deployed use (Ollama
     # needs a local machine running it, DeepSeek needs a paid API key) - see get_llm() below,
     # which still supports both if you ever set them up again, just not exposed in the UI.
-    "groq": "Groq (Llama 3.3 70B) — daily free limit",
+    "groq": "Groq (GPT-OSS 120B) — daily free limit",
     "gemini": "Gemini (free tier) — separate daily limit",
 }
 DEFAULT_PROVIDER = "groq"
@@ -82,19 +82,26 @@ def get_llm(provider: str = DEFAULT_PROVIDER, temperature: float = 0.3, max_toke
             max_tokens=max_tokens,
         )
 
-    # default: groq, with automatic fallback to the smaller model on rate limit/error
+    # default: groq, with automatic fallback to a smaller/faster model on rate limit/error.
+    # llama-3.3-70b-versatile is decommissioned by Groq as of 2026-08-16 (per their deprecation
+    # email) - requests to it stop being served entirely past that date, not just deprioritized.
+    # Replaced with openai/gpt-oss-120b, Groq's recommended replacement and, as of this change,
+    # a "Production" (not Preview) tier model on their model list - meaning it's meant for
+    # production use and isn't subject to being pulled at short notice the way Preview models
+    # are. The fallback model is openai/gpt-oss-20b - also Production tier, smaller/faster, same
+    # family so behavior stays consistent between primary and fallback.
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         raise ValueError("GROQ_API_KEY missing! Set it in backend/.env")
 
     primary = ChatGroq(
-        model="llama-3.3-70b-versatile",
+        model="openai/gpt-oss-120b",
         temperature=temperature,
         max_tokens=max_tokens,
         api_key=api_key,
     )
     fallback = ChatGroq(
-        model="llama-3.1-8b-instant",
+        model="openai/gpt-oss-20b",
         temperature=temperature,
         max_tokens=max_tokens,
         api_key=api_key,

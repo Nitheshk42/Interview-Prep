@@ -2,7 +2,7 @@ import { createContext, useContext, useState } from "react";
 
 // Mirrors src/llm_provider.py's PROVIDERS dict - keep the keys in sync with the backend.
 export const PROVIDERS = {
-  groq: "Groq (Llama 3.3 70B) — daily free limit",
+  groq: "Groq (GPT-OSS 120B) — daily free limit",
   gemini: "Gemini (free tier) — separate daily limit",
 };
 const DEFAULT_PROVIDER = "groq";
