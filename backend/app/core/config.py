@@ -46,3 +46,16 @@ CORS_ORIGINS = [
     "http://127.0.0.1:5173",
     *_EXTRA_ORIGINS,
 ]
+
+# Monetization (Career Sprint one-time purchase) - all three unset by default, which keeps the
+# whole payments feature dormant (see routers/payments.py: it returns a clear 503 instead of a
+# raw Stripe SDK error when these are missing). Set these in backend/.env locally or in Render's
+# environment settings when actually turning monetization on - nothing here charges anyone until
+# STRIPE_SECRET_KEY is a real live/test key.
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_PRICE_ID_SPRINT = os.getenv("STRIPE_PRICE_ID_SPRINT", "")
+# Where Stripe Checkout redirects after a successful/cancelled payment - the deployed frontend
+# origin in production, the Vite dev server locally.
+FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
+SPRINT_DURATION_DAYS = 14

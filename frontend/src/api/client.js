@@ -31,7 +31,12 @@ async function handle(res) {
         location.reload();
       }
     }
-    throw new Error(detail);
+    // 402 = hit the free-tier daily cap (see backend/app/deps.py's enforce_usage_cap). Tagging
+    // the thrown error with .status lets callers show an "Upgrade to Sprint" prompt specifically
+    // for this case, instead of a generic error banner indistinguishable from a real failure.
+    const err = new Error(detail);
+    err.status = res.status;
+    throw err;
   }
   return res.json();
 }
@@ -235,6 +240,23 @@ export async function previewResumeTailor({ fullResumeText, replacements }) {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ full_resume_text: fullResumeText, replacements }),
+  });
+  return handle(res);
+}
+
+// ===== Monetization: Career Sprint one-time purchase via Stripe Checkout. Dormant until the
+// backend has real Stripe keys set - /payments/checkout returns a 503 until then, which the
+// upgrade UI shows as "not available yet" rather than crashing. =====
+
+export async function getPaymentStatus() {
+  const res = await fetch(`${API_URL}/payments/status`, { headers: authHeaders() });
+  return handle(res);
+}
+
+export async function createCheckout() {
+  const res = await fetch(`${API_URL}/payments/checkout`, {
+    method: "POST",
+    headers: authHeaders(),
   });
   return handle(res);
 }

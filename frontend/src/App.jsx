@@ -15,11 +15,56 @@ import { DEFAULT_SECTION } from "./sections";
 
 const KNOWN_SECTIONS = ["resume_sync", "chat", "hybrid", "level", "jd", "general_jd", "tailor"];
 
+// No client-side router in this app (sections are plain state, not URLs) - Stripe still needs a
+// real URL to redirect back to after Checkout, so /payment-result is handled as a one-off special
+// case here rather than pulling in a routing library for a single page.
+function PaymentResultBanner() {
+  const params = new URLSearchParams(window.location.search);
+  if (window.location.pathname !== "/payment-result") return null;
+  const status = params.get("status");
+
+  function dismiss() {
+    window.history.replaceState({}, "", "/");
+    window.location.reload();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-white flex items-center justify-center p-6">
+      <div className="max-w-sm text-center">
+        {status === "success" ? (
+          <>
+            <p className="text-3xl mb-2">🎉</p>
+            <h1 className="text-lg font-medium text-gray-900 mb-1">Career Sprint activated</h1>
+            <p className="text-sm text-gray-500 mb-4">
+              You're set for the next 14 days — unlimited questions and resume syncs.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-3xl mb-2">😕</p>
+            <h1 className="text-lg font-medium text-gray-900 mb-1">Checkout cancelled</h1>
+            <p className="text-sm text-gray-500 mb-4">No charge was made — you can upgrade any time from the sidebar.</p>
+          </>
+        )}
+        <button
+          type="button"
+          onClick={dismiss}
+          className="bg-accent text-white rounded-lg px-4 py-2 text-sm font-medium hover:brightness-110 transition"
+        >
+          Continue to StudySager
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Gated() {
   const { token, profile, refreshProfile } = useAuth();
   const [checked, setChecked] = useState(false);
   const [section, setSection] = useState(DEFAULT_SECTION);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  if (window.location.pathname === "/payment-result") return <PaymentResultBanner />;
 
   useEffect(() => {
     if (token && profile === null) {

@@ -4,6 +4,7 @@ import { useProvider } from "../context/ProviderContext";
 import MicButton from "../components/MicButton";
 import ChatHistoryPanel from "../components/ChatHistoryPanel";
 import TruncationBanner from "../components/TruncationBanner";
+import UpgradeBanner from "../components/UpgradeBanner";
 
 const SECTION = "chat";
 
@@ -25,6 +26,7 @@ export default function ChatPage() {
   const [lastResult, setLastResult] = useState(null); // { retrieved, context, prompt, answer, question }
   const [showFullPrompt, setShowFullPrompt] = useState(false);
   const [error, setError] = useState("");
+  const [capHit, setCapHit] = useState(false);
   const bottomRef = useRef(null);
 
   // Jump straight to the newest question/answer whenever the thread changes, instead of
@@ -104,6 +106,7 @@ export default function ChatPage() {
     setError("");
     setMessages((m) => [...m, { role: "user", content: question }]);
     setBusy(true);
+    setCapHit(false);
     try {
       const data = await api.askChat(question, provider);
       setMessages((m) => [...m, { role: "assistant", content: data.answer }]);
@@ -121,7 +124,12 @@ export default function ChatPage() {
       await api.appendSessionMessage(sessionId, question, data);
       refreshSessions();
     } catch (err) {
-      setError(err.message || "Something went wrong.");
+      if (err.status === 402) {
+        setCapHit(true);
+        setMessages((m) => m.slice(0, -1)); // drop the just-added user bubble - question never answered
+      } else {
+        setError(err.message || "Something went wrong.");
+      }
     } finally {
       setBusy(false);
     }
@@ -173,6 +181,7 @@ export default function ChatPage() {
           <div ref={bottomRef} />
         </div>
 
+        {capHit && <UpgradeBanner message="You've hit today's free question limit." />}
         {error && <p className="text-sm text-red-600 mt-2 shrink-0">{error}</p>}
 
         <form onSubmit={handleSend} className="mt-3 flex gap-2 shrink-0">

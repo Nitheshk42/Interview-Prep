@@ -1,7 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from app.deps import get_current_user
+from app.deps import enforce_usage_cap
 from app.services.vector_store import get_vectorstore
 from app.services.rag_pipeline_hybrid import route_question, answer_resume_fact, answer_technical_deep_dive
 from app.services.rag_pipeline import _wants_full_resume
@@ -54,7 +54,7 @@ def _build_side(vectorstore, question, provider, fn):
 
 
 @router.post("/ask", response_model=HybridChatResponse)
-def ask(payload: HybridChatRequest, username: str = Depends(get_current_user)):
+def ask(payload: HybridChatRequest, username: str = Depends(enforce_usage_cap("questions"))):
     if not payload.question or not payload.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 

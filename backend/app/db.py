@@ -62,6 +62,33 @@ chat_messages = Table(
     Column("created_at", String(64)),
 )
 
+# Monetization tables - built now (ahead of Stripe actually being turned on) so the whole gating
+# path (usage caps, "you've hit the free limit", checkout, webhook activation) can be wired up and
+# tested end-to-end with zero live payments happening. Nothing in here charges anyone until real
+# STRIPE_* env vars are set - see payments.py.
+purchases = Table(
+    "purchases", _metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("username", String(255), ForeignKey("users.username"), nullable=False),
+    Column("tier", String(32), nullable=False),  # e.g. "sprint"
+    Column("status", String(32), nullable=False, server_default="pending"),  # pending|active|expired
+    Column("stripe_customer_id", String(255)),
+    Column("stripe_session_id", String(255)),
+    Column("expires_at", String(64)),
+    Column("created_at", String(64)),
+)
+
+# One row per (username, day, bucket) - counts free-tier usage so a cap can be enforced without a
+# separate cron job to reset counters; "today" is just whatever date string is being incremented.
+usage_daily = Table(
+    "usage_daily", _metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("username", String(255), ForeignKey("users.username"), nullable=False),
+    Column("day", String(10), nullable=False),  # YYYY-MM-DD (UTC)
+    Column("bucket", String(32), nullable=False),  # "questions" | "resume_sync"
+    Column("count", Integer, nullable=False, server_default="0"),
+)
+
 
 def init_db():
     """Creates every table that doesn't exist yet, on either backend. Call once at app startup
@@ -324,3 +351,93 @@ def save_feedback(username: str, message: str) -> bool:
             {"username": username, "message": message.strip(), "now": _now()},
         )
         return True
+
+
+# ===== Monetization: purchases + usage caps (dormant until Stripe env vars are set) =====
+
+def _today() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def create_pending_purchase(username: str, tier: str, stripe_session_id: str) -> int:
+    """Recorded the moment a Stripe Checkout Session is created, before the user has actually
+    paid - lets the success-page redirect look up "did this session complete?" and lets the
+    webhook (which may arrive slightly before or after the browser redirect) find the right row
+    to activate by stripe_session_id rather than trusting anything the browser tells it."""
+    now = _now()
+    with _engine.begin() as conn:
+        result = conn.execute(
+            text("""INSERT INTO purchases (username, tier, status, stripe_session_id, created_at)
+                    VALUES (:username, :tier, 'pending', :stripe_session_id, :now) RETURNING id"""),
+            {"username": username, "tier": tier, "stripe_session_id": stripe_session_id, "now": now},
+        )
+        return result.scalar()
+
+
+def activate_purchase(stripe_session_id: str, stripe_customer_id: str | None, expires_at: str) -> bool:
+    """Called from the Stripe webhook on checkout.session.completed - the only place a purchase
+    should ever flip from pending to active, since it's the only signal that's actually been
+    verified by Stripe's webhook signature, not just claimed by the browser."""
+    with _engine.begin() as conn:
+        result = conn.execute(
+            text("""UPDATE purchases SET status = 'active', stripe_customer_id = :cust, expires_at = :exp
+                    WHERE stripe_session_id = :sid"""),
+            {"cust": stripe_customer_id, "exp": expires_at, "sid": stripe_session_id},
+        )
+        return result.rowcount > 0
+
+
+def has_active_sprint(username: str) -> bool:
+    now = _now()
+    with _engine.connect() as conn:
+        row = conn.execute(
+            text("""SELECT 1 FROM purchases WHERE username = :username AND tier = 'sprint'
+                    AND status = 'active' AND expires_at > :now LIMIT 1"""),
+            {"username": username, "now": now},
+        ).fetchone()
+        return row is not None
+
+
+def get_active_sprint_expiry(username: str) -> str | None:
+    now = _now()
+    with _engine.connect() as conn:
+        row = conn.execute(
+            text("""SELECT expires_at FROM purchases WHERE username = :username AND tier = 'sprint'
+                    AND status = 'active' AND expires_at > :now ORDER BY expires_at DESC LIMIT 1"""),
+            {"username": username, "now": now},
+        ).fetchone()
+        return row[0] if row else None
+
+
+def get_usage_today(username: str, bucket: str) -> int:
+    with _engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT count FROM usage_daily WHERE username = :username AND day = :day AND bucket = :bucket"),
+            {"username": username, "day": _today(), "bucket": bucket},
+        ).fetchone()
+        return row[0] if row else 0
+
+
+def increment_usage_today(username: str, bucket: str) -> int:
+    """Upserts the counter for (username, today, bucket) and returns the new count. Written as a
+    plain select-then-insert-or-update rather than an ON CONFLICT clause because the exact upsert
+    syntax differs between SQLite and Postgres - this stays dialect-portable like the rest of the
+    file, at the cost of a small (harmless) race under true concurrent requests from the same user."""
+    day = _today()
+    with _engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT id, count FROM usage_daily WHERE username = :username AND day = :day AND bucket = :bucket"),
+            {"username": username, "day": day, "bucket": bucket},
+        ).fetchone()
+        if row:
+            new_count = row[1] + 1
+            conn.execute(
+                text("UPDATE usage_daily SET count = :count WHERE id = :id"),
+                {"count": new_count, "id": row[0]},
+            )
+            return new_count
+        conn.execute(
+            text("INSERT INTO usage_daily (username, day, bucket, count) VALUES (:username, :day, :bucket, 1)"),
+            {"username": username, "day": day, "bucket": bucket},
+        )
+        return 1

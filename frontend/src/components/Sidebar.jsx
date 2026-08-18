@@ -23,8 +23,37 @@ export default function Sidebar({ section, onSectionChange, mobileOpen, onMobile
   const [feedback, setFeedback] = useState("");
   const [feedbackMsg, setFeedbackMsg] = useState("");
   const [reprocessing, setReprocessing] = useState(false);
+  const [sprintStatus, setSprintStatus] = useState(null); // null = not loaded yet, false = inactive
+  const [upgrading, setUpgrading] = useState(false);
   const fileInputRef = useRef(null);
   const menuRef = useRef(null);
+
+  // Fails silently (payments aren't guaranteed to be turned on - see routers/payments.py) -
+  // this badge simply doesn't render if the status check errors, rather than showing anything
+  // scary to a user on a build where monetization isn't configured yet.
+  useEffect(() => {
+    api.getPaymentStatus().then(setSprintStatus).catch(() => setSprintStatus(false));
+  }, []);
+
+  async function handleUpgrade() {
+    setUpgrading(true);
+    try {
+      const { checkout_url } = await api.createCheckout();
+      window.location.href = checkout_url;
+    } catch (err) {
+      alert(err.status === 503
+        ? "Upgrades aren't available yet - check back soon."
+        : (err.message || "Something went wrong starting checkout."));
+    } finally {
+      setUpgrading(false);
+    }
+  }
+
+  function daysLeft(expiresAt) {
+    if (!expiresAt) return null;
+    const ms = new Date(expiresAt).getTime() - Date.now();
+    return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
+  }
 
   // Close the profile dropdown on an outside click.
   useEffect(() => {
@@ -168,6 +197,22 @@ export default function Sidebar({ section, onSectionChange, mobileOpen, onMobile
           ))}
         </select>
       </div>
+
+      {sprintStatus?.active && (
+        <div className="px-2.5 py-2 rounded-lg bg-accent/10 text-accent text-[11px] font-medium">
+          🚀 Career Sprint active — {daysLeft(sprintStatus.expires_at)} day{daysLeft(sprintStatus.expires_at) === 1 ? "" : "s"} left
+        </div>
+      )}
+      {sprintStatus === false && (
+        <button
+          type="button"
+          onClick={handleUpgrade}
+          disabled={upgrading}
+          className="w-full text-[11px] font-medium text-left px-2.5 py-2 rounded-lg border border-accent/30 text-accent hover:bg-accent/5 transition disabled:opacity-50"
+        >
+          {upgrading ? "Starting checkout..." : "🚀 Upgrade to Career Sprint"}
+        </button>
+      )}
 
       <nav className="flex flex-col gap-3">
         {["before", "during"].map((phase) => (

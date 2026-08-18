@@ -4,6 +4,7 @@ import { useProvider } from "../context/ProviderContext";
 import MicButton from "../components/MicButton";
 import ChatHistoryPanel from "../components/ChatHistoryPanel";
 import TruncationBanner from "../components/TruncationBanner";
+import UpgradeBanner from "../components/UpgradeBanner";
 
 const SECTION = "hybrid";
 
@@ -26,6 +27,7 @@ export default function HybridChatPage() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [capHit, setCapHit] = useState(false);
   const bottomRef = useRef(null);
 
   // Jump straight to the newest question whenever the thread changes, instead of leaving the
@@ -92,6 +94,7 @@ export default function HybridChatPage() {
     if (!question || busy) return;
     setInput("");
     setError("");
+    setCapHit(false);
     setBusy(true);
     try {
       const data = await api.askHybridChat(question, provider);
@@ -106,7 +109,11 @@ export default function HybridChatPage() {
       await api.appendSessionMessage(sessionId, question, data);
       refreshSessions();
     } catch (err) {
-      setError(err.message || "Something went wrong.");
+      if (err.status === 402) {
+        setCapHit(true);
+      } else {
+        setError(err.message || "Something went wrong.");
+      }
     } finally {
       setBusy(false);
     }
@@ -148,6 +155,7 @@ export default function HybridChatPage() {
           <div ref={bottomRef} />
         </div>
 
+        {capHit && <UpgradeBanner message="You've hit today's free question limit." />}
         {error && <p className="text-sm text-red-600 mt-2 shrink-0">{error}</p>}
 
         <form onSubmit={handleSend} className="mt-3 flex gap-2 shrink-0">

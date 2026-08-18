@@ -4,6 +4,7 @@ import { useProvider } from "../context/ProviderContext";
 import MicButton from "../components/MicButton";
 import ChatHistoryPanel from "../components/ChatHistoryPanel";
 import TruncationBanner from "../components/TruncationBanner";
+import UpgradeBanner from "../components/UpgradeBanner";
 
 const SECTION = "level";
 
@@ -28,6 +29,7 @@ export default function LevelChatPage() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [capHit, setCapHit] = useState(false);
 
   const refreshSessions = useCallback(() => {
     api.listSessions(SECTION).then(setSessions).catch(() => {});
@@ -87,6 +89,7 @@ export default function LevelChatPage() {
     if (!question || busy) return;
     setInput("");
     setError("");
+    setCapHit(false);
     setBusy(true);
     try {
       const data = await api.askLevelChat(question, provider);
@@ -101,7 +104,11 @@ export default function LevelChatPage() {
       await api.appendSessionMessage(sessionId, question, data);
       refreshSessions();
     } catch (err) {
-      setError(err.message || "Something went wrong.");
+      if (err.status === 402) {
+        setCapHit(true);
+      } else {
+        setError(err.message || "Something went wrong.");
+      }
     } finally {
       setBusy(false);
     }
@@ -136,6 +143,7 @@ export default function LevelChatPage() {
           {busy && <p className="text-sm text-gray-400">🪜 Preparing all four levels...</p>}
         </div>
 
+        {capHit && <UpgradeBanner message="You've hit today's free question limit." />}
         {error && <p className="text-sm text-red-600 mt-4">{error}</p>}
 
         <form onSubmit={handleSend} className="mt-6 flex gap-2 sticky bottom-4 bg-white">

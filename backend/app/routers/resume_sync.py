@@ -9,7 +9,7 @@ the user asked for, not just "saved for browsing"."""
 import json
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from app.deps import get_current_user
+from app.deps import enforce_usage_cap
 from app import db
 from app.routers.onboarding import get_full_resume_text
 from app.services.resume_sync import generate_tool_breakdown, generate_vendor_qa, jd_fingerprint
@@ -71,7 +71,7 @@ class ToolBreakdownResponse(BaseModel):
 
 
 @router.post("/tool-breakdown", response_model=ToolBreakdownResponse)
-def tool_breakdown(payload: ToolBreakdownRequest, username: str = Depends(get_current_user)):
+def tool_breakdown(payload: ToolBreakdownRequest, username: str = Depends(enforce_usage_cap("resume_sync"))):
     resume_text = get_full_resume_text(username)
     if not resume_text.strip():
         raise HTTPException(status_code=400, detail="No processed resume found. Please complete onboarding first.")
@@ -105,7 +105,7 @@ class VendorQaResponse(BaseModel):
 
 
 @router.post("/vendor-qa", response_model=VendorQaResponse)
-def vendor_qa(payload: VendorQaRequest, username: str = Depends(get_current_user)):
+def vendor_qa(payload: VendorQaRequest, username: str = Depends(enforce_usage_cap("resume_sync"))):
     if not payload.jd_text or not payload.jd_text.strip():
         raise HTTPException(status_code=400, detail="Job description cannot be empty.")
 

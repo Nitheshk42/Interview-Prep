@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from app.deps import get_current_user
+from app.deps import enforce_usage_cap
 from app.services.vector_store import get_vectorstore
 from app.services.rag_pipeline import answer_question, _wants_full_resume
 
@@ -44,7 +44,7 @@ def _relative_match_pcts(distances: list[float]) -> list[int]:
 
 
 @router.post("/ask", response_model=ChatResponse)
-def ask(payload: ChatRequest, username: str = Depends(get_current_user)):
+def ask(payload: ChatRequest, username: str = Depends(enforce_usage_cap("questions"))):
     if not payload.question or not payload.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 

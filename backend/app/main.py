@@ -14,7 +14,7 @@ except ImportError:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import CORS_ORIGINS
-from app.routers import auth, onboarding, chat, hybrid_chat, level_chat, jd_chat, general_jd_chat, resume_tailor, chat_sessions, resume_sync
+from app.routers import auth, onboarding, chat, hybrid_chat, level_chat, jd_chat, general_jd_chat, resume_tailor, chat_sessions, resume_sync, payments
 from app import db
 
 app = FastAPI(title="StudySager API", version="0.1.0")
@@ -45,6 +45,7 @@ app.include_router(general_jd_chat.router)
 app.include_router(resume_tailor.router)
 app.include_router(chat_sessions.router)
 app.include_router(resume_sync.router)
+app.include_router(payments.router)
 
 
 @app.get("/health")

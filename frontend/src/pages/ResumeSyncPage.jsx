@@ -3,6 +3,7 @@ import * as api from "../api/client";
 import { useProvider } from "../context/ProviderContext";
 import ChatHistoryPanel from "../components/ChatHistoryPanel";
 import TruncationBanner from "../components/TruncationBanner";
+import UpgradeBanner from "../components/UpgradeBanner";
 
 const LEVEL_COLOR = {
   Expert: "bg-purple-100 text-purple-700",
@@ -59,6 +60,7 @@ function ToolSyncTab() {
   const [truncated, setTruncated] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [capHit, setCapHit] = useState(false);
 
   const refreshSessions = useCallback(() => {
     api.listSessions("resume_sync_tools").then(setSessions).catch(() => {});
@@ -71,6 +73,7 @@ function ToolSyncTab() {
   async function handleSync() {
     setBusy(true);
     setError("");
+    setCapHit(false);
     try {
       const data = await api.generateToolBreakdown(provider);
       setTools(data.tools);
@@ -81,7 +84,11 @@ function ToolSyncTab() {
       await api.appendSessionMessage(created.id, "Resume sync", data);
       refreshSessions();
     } catch (err) {
-      setError(err.message || "Couldn't sync your resume — try again.");
+      if (err.status === 402) {
+        setCapHit(true);
+      } else {
+        setError(err.message || "Couldn't sync your resume — try again.");
+      }
     } finally {
       setBusy(false);
     }
@@ -154,6 +161,7 @@ function ToolSyncTab() {
           {busy ? "🔄 Reading your entire resume..." : "🔄 Sync my resume"}
         </button>
 
+        {capHit && <UpgradeBanner message="You've hit today's free resume-sync limit." />}
         {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
         {truncated && <TruncationBanner />}
 
@@ -250,6 +258,7 @@ function VendorPrepTab() {
   const [fromCache, setFromCache] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [capHit, setCapHit] = useState(false);
 
   const refreshSessions = useCallback(() => {
     api.listSessions("resume_sync_qa").then(setSessions).catch(() => {});
@@ -265,6 +274,7 @@ function VendorPrepTab() {
       return;
     }
     setError("");
+    setCapHit(false);
     setBusy(true);
     try {
       const data = await api.generateVendorQa({ jdText, provider, numQuestions: 8 });
@@ -274,7 +284,11 @@ function VendorPrepTab() {
       setActiveSessionId(data.session_id);
       refreshSessions();
     } catch (err) {
-      setError(err.message || "Couldn't generate vendor Q&A — try again.");
+      if (err.status === 402) {
+        setCapHit(true);
+      } else {
+        setError(err.message || "Couldn't generate vendor Q&A — try again.");
+      }
     } finally {
       setBusy(false);
     }
@@ -360,6 +374,7 @@ function VendorPrepTab() {
           </button>
         </div>
 
+        {capHit && <UpgradeBanner message="You've hit today's free resume-sync limit." />}
         {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
         {truncated && <TruncationBanner />}
 

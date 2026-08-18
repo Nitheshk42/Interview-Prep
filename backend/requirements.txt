@@ -45,3 +45,7 @@ langchain-groq
 langchain-openai
 
 tiktoken
+
+# Monetization - Career Sprint one-time purchase via Stripe Checkout (see routers/payments.py).
+# Safe to install even with no Stripe keys set; the SDK just never gets a live key to call with.
+stripe

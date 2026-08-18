@@ -1,7 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from app.deps import get_current_user
+from app.deps import enforce_usage_cap
 from app.services.vector_store import get_vectorstore
 from app.services.rag_pipeline_hybrid import answer_at_level, LEVEL_ORDER
 from app.services.rag_pipeline import _wants_full_resume
@@ -41,7 +41,7 @@ def _build_level_side(vectorstore, question, level, provider):
 
 
 @router.post("/ask", response_model=LevelChatResponse)
-def ask(payload: LevelChatRequest, username: str = Depends(get_current_user)):
+def ask(payload: LevelChatRequest, username: str = Depends(enforce_usage_cap("questions"))):
     if not payload.question or not payload.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
