@@ -40,8 +40,14 @@ def signup(payload: SignupRequest):
 
 @router.post("/login", response_model=AuthResponse)
 def login(payload: LoginRequest):
+    # Deliberately distinguishes "no such username" from "wrong password" - a small tradeoff
+    # (technically lets someone probe which usernames exist) that's worth it here for a clearer,
+    # more helpful error than a generic "username or password doesn't match" - explicitly requested
+    # over the more cautious combined-message approach.
+    if not db.user_exists(payload.username):
+        raise HTTPException(status_code=401, detail="Username doesn't match any account.")
     if not db.verify_user(payload.username, payload.password):
-        raise HTTPException(status_code=401, detail="That username or password doesn't match.")
+        raise HTTPException(status_code=401, detail="Incorrect password.")
     token = create_access_token(payload.username)
     return AuthResponse(
         access_token=token,
