@@ -50,7 +50,7 @@ def enforce_usage_cap(bucket: str):
     limit = FREE_TIER_CAPS[bucket]
 
     def dependency(username: str = Depends(get_current_user)) -> str:
-        if db.has_active_sprint(username):
+        if db.has_active_paid(username):
             return username
         used = db.get_usage_today(username, bucket)
         if used >= limit:

@@ -244,19 +244,26 @@ export async function previewResumeTailor({ fullResumeText, replacements }) {
   return handle(res);
 }
 
-// ===== Monetization: Career Sprint one-time purchase via Stripe Checkout. Dormant until the
-// backend has real Stripe keys set - /payments/checkout returns a 503 until then, which the
-// upgrade UI shows as "not available yet" rather than crashing. =====
+// ===== Monetization: three pricing tiers (sprint/student/pro_monthly) via Stripe Checkout.
+// Dormant per-tier until the backend has that tier's real Stripe price ID set - /payments/checkout
+// returns a 503 for a tier that isn't configured yet, which the upgrade UI shows as "not
+// available yet" rather than crashing. =====
+
+export async function getPaymentPlans() {
+  const res = await fetch(`${API_URL}/payments/plans`, { headers: authHeaders() });
+  return handle(res);
+}
 
 export async function getPaymentStatus() {
   const res = await fetch(`${API_URL}/payments/status`, { headers: authHeaders() });
   return handle(res);
 }
 
-export async function createCheckout() {
+export async function createCheckout(tier = "sprint") {
   const res = await fetch(`${API_URL}/payments/checkout`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ tier }),
   });
   return handle(res);
 }

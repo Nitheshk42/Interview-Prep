@@ -82,31 +82,36 @@ def get_llm(provider: str = DEFAULT_PROVIDER, temperature: float = 0.3, max_toke
             max_tokens=max_tokens,
         )
 
-    # default: groq, with automatic fallback to a smaller/faster model on rate limit/error.
-    # llama-3.3-70b-versatile is decommissioned by Groq as of 2026-08-16 (per their deprecation
-    # email) - requests to it stop being served entirely past that date, not just deprioritized.
-    # Replaced with openai/gpt-oss-120b, Groq's recommended replacement and, as of this change,
-    # a "Production" (not Preview) tier model on their model list - meaning it's meant for
-    # production use and isn't subject to being pulled at short notice the way Preview models
-    # are. The fallback model is openai/gpt-oss-20b - also Production tier, smaller/faster, same
-    # family so behavior stays consistent between primary and fallback.
+    # default: groq, with automatic fallback through several smaller/different free models before
+    # giving up. llama-3.3-70b-versatile is decommissioned by Groq as of 2026-08-16 (per their
+    # deprecation email) - requests to it stop being served entirely past that date, not just
+    # deprioritized. Replaced with openai/gpt-oss-120b, Groq's recommended replacement and a
+    # "Production" (not Preview) tier model on their model list - meaning it's meant for
+    # production use and isn't subject to being pulled at short notice the way Preview models are.
+    #
+    # A single fallback wasn't enough in practice - if Groq itself is having a bad moment (rate
+    # limit, or a specific model temporarily degraded), one fallback model on the SAME provider
+    # can still fail for the same underlying reason. This chain now tries three free Groq models
+    # in order (gpt-oss-120b -> gpt-oss-20b -> llama-3.1-8b-instant, all Production tier - none of
+    # them Preview-tier "may be pulled at short notice" models), and if a GEMINI_API_KEY is also
+    # configured, falls through to Gemini last - a genuinely separate provider on a separate quota,
+    # so a Groq-wide outage doesn't take the whole app down with it. The goal: a user should get an
+    # actual answer, not a "the Answer engine is overloaded, try again" message, as often as
+    # possible - this is the fix for that.
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         raise ValueError("GROQ_API_KEY missing! Set it in backend/.env")
 
-    primary = ChatGroq(
-        model="openai/gpt-oss-120b",
-        temperature=temperature,
-        max_tokens=max_tokens,
-        api_key=api_key,
-    )
-    fallback = ChatGroq(
-        model="openai/gpt-oss-20b",
-        temperature=temperature,
-        max_tokens=max_tokens,
-        api_key=api_key,
-    )
-    return primary.with_fallbacks([fallback])
+    primary = ChatGroq(model="openai/gpt-oss-120b", temperature=temperature, max_tokens=max_tokens, api_key=api_key)
+    fallback_1 = ChatGroq(model="openai/gpt-oss-20b", temperature=temperature, max_tokens=max_tokens, api_key=api_key)
+    fallback_2 = ChatGroq(model="llama-3.1-8b-instant", temperature=temperature, max_tokens=max_tokens, api_key=api_key)
+
+    fallbacks = [fallback_1, fallback_2]
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if gemini_key:
+        fallbacks.append(get_llm(provider="gemini", temperature=temperature, max_tokens=max_tokens))
+
+    return primary.with_fallbacks(fallbacks)
 
 
 def invoke_and_check_truncation(llm, prompt_value):

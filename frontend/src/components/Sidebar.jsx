@@ -3,6 +3,9 @@ import { useAuth } from "../context/AuthContext";
 import { useProvider, PROVIDERS } from "../context/ProviderContext";
 import * as api from "../api/client";
 import { SECTIONS, PHASE_LABELS } from "../sections";
+import PlanPicker from "./PlanPicker";
+
+const TIER_LABELS = { sprint: "Career Sprint", student: "Student", pro_monthly: "Pro" };
 
 // Redesigned per the reviewed prototype: avatar + compact provider select up top, grouped nav
 // with section labels (Before interview / During interview / Coming soon), and the
@@ -23,8 +26,8 @@ export default function Sidebar({ section, onSectionChange, mobileOpen, onMobile
   const [feedback, setFeedback] = useState("");
   const [feedbackMsg, setFeedbackMsg] = useState("");
   const [reprocessing, setReprocessing] = useState(false);
-  const [sprintStatus, setSprintStatus] = useState(null); // null = not loaded yet, false = inactive
-  const [upgrading, setUpgrading] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState(null); // null = not loaded yet, {active:false} = inactive
+  const [pickerOpen, setPickerOpen] = useState(false);
   const fileInputRef = useRef(null);
   const menuRef = useRef(null);
 
@@ -32,22 +35,8 @@ export default function Sidebar({ section, onSectionChange, mobileOpen, onMobile
   // this badge simply doesn't render if the status check errors, rather than showing anything
   // scary to a user on a build where monetization isn't configured yet.
   useEffect(() => {
-    api.getPaymentStatus().then(setSprintStatus).catch(() => setSprintStatus(false));
+    api.getPaymentStatus().then(setPaymentStatus).catch(() => setPaymentStatus({ active: false }));
   }, []);
-
-  async function handleUpgrade() {
-    setUpgrading(true);
-    try {
-      const { checkout_url } = await api.createCheckout();
-      window.location.href = checkout_url;
-    } catch (err) {
-      alert(err.status === 503
-        ? "Upgrades aren't available yet - check back soon."
-        : (err.message || "Something went wrong starting checkout."));
-    } finally {
-      setUpgrading(false);
-    }
-  }
 
   function daysLeft(expiresAt) {
     if (!expiresAt) return null;
@@ -198,21 +187,24 @@ export default function Sidebar({ section, onSectionChange, mobileOpen, onMobile
         </select>
       </div>
 
-      {sprintStatus?.active && (
+      {paymentStatus?.active && (
         <div className="px-2.5 py-2 rounded-lg bg-accent/10 text-accent text-[11px] font-medium">
-          🚀 Career Sprint active — {daysLeft(sprintStatus.expires_at)} day{daysLeft(sprintStatus.expires_at) === 1 ? "" : "s"} left
+          🚀 {TIER_LABELS[paymentStatus.tier] || paymentStatus.tier} active
+          {paymentStatus.expires_at
+            ? ` — ${daysLeft(paymentStatus.expires_at)} day${daysLeft(paymentStatus.expires_at) === 1 ? "" : "s"} left`
+            : " — renews monthly"}
         </div>
       )}
-      {sprintStatus === false && (
+      {paymentStatus && !paymentStatus.active && (
         <button
           type="button"
-          onClick={handleUpgrade}
-          disabled={upgrading}
-          className="w-full text-[11px] font-medium text-left px-2.5 py-2 rounded-lg border border-accent/30 text-accent hover:bg-accent/5 transition disabled:opacity-50"
+          onClick={() => setPickerOpen(true)}
+          className="w-full text-[11px] font-medium text-left px-2.5 py-2 rounded-lg border border-accent/30 text-accent hover:bg-accent/5 transition"
         >
-          {upgrading ? "Starting checkout..." : "🚀 Upgrade to Career Sprint"}
+          🚀 Upgrade
         </button>
       )}
+      {pickerOpen && <PlanPicker onClose={() => setPickerOpen(false)} />}
 
       <nav className="flex flex-col gap-3">
         {["before", "during"].map((phase) => (

@@ -47,14 +47,17 @@ CORS_ORIGINS = [
     *_EXTRA_ORIGINS,
 ]
 
-# Monetization (Career Sprint one-time purchase) - all three unset by default, which keeps the
-# whole payments feature dormant (see routers/payments.py: it returns a clear 503 instead of a
-# raw Stripe SDK error when these are missing). Set these in backend/.env locally or in Render's
-# environment settings when actually turning monetization on - nothing here charges anyone until
-# STRIPE_SECRET_KEY is a real live/test key.
+# Monetization - three pricing tiers, each gated on its own price ID being set (see
+# routers/payments.py: a tier whose price ID is blank returns a clear 503 instead of a raw Stripe
+# SDK error - so tiers can be turned on one at a time as you create each price in Stripe, rather
+# than all-or-nothing). Set these in backend/.env locally or in Render's environment settings when
+# actually turning a tier on - nothing here charges anyone until STRIPE_SECRET_KEY is a real
+# live/test key AND that specific tier's price ID is set.
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
-STRIPE_PRICE_ID_SPRINT = os.getenv("STRIPE_PRICE_ID_SPRINT", "")
+STRIPE_PRICE_ID_SPRINT = os.getenv("STRIPE_PRICE_ID_SPRINT", "")  # one-time, 14-day window
+STRIPE_PRICE_ID_STUDENT = os.getenv("STRIPE_PRICE_ID_STUDENT", "")  # one-time, discounted, 14-day window
+STRIPE_PRICE_ID_PRO_MONTHLY = os.getenv("STRIPE_PRICE_ID_PRO_MONTHLY", "")  # recurring monthly subscription
 # Where Stripe Checkout redirects after a successful/cancelled payment - the deployed frontend
 # origin in production, the Vite dev server locally.
 FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")

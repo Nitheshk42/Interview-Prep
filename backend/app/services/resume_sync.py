@@ -122,11 +122,18 @@ def _parse_tool_breakdown(raw: str):
     multiple lines - it's 2-3 full sentences, not a one-liner). INFERRED distinguishes an answer
     the resume states directly from one reconstructed from the role's surrounding context - see
     TOOL_BREAKDOWN_TEMPLATE's "two sources of truth" instructions."""
+    # Case-insensitive throughout: different LLM providers/models don't reliably reproduce the
+    # exact "TOOL:"/"EXPERIENCE:" casing asked for in the prompt (one might write "Tool:" instead)
+    # - a case-sensitive regex would then match nothing at all and silently return zero tools,
+    # even though the model answered the question correctly. This was seen in production after
+    # switching Answer engines: a perfectly good answer came back, but the strict-case parser
+    # couldn't read it, so the endpoint reported "couldn't extract a tool breakdown" for a synced
+    # resume that had actually been read and summarized just fine.
     tools = []
     for block in raw.split("==="):
-        tool_match = re.search(r"TOOL:\s*(.+)", block)
-        exp_match = re.search(r"EXPERIENCE:\s*(.+)", block)
-        level_match = re.search(r"LEVEL:\s*(.+)", block)
+        tool_match = re.search(r"TOOL:\s*(.+)", block, re.IGNORECASE)
+        exp_match = re.search(r"EXPERIENCE:\s*(.+)", block, re.IGNORECASE)
+        level_match = re.search(r"LEVEL:\s*(.+)", block, re.IGNORECASE)
         if not (tool_match and exp_match and level_match):
             continue
         tool = tool_match.group(1).strip()
@@ -139,7 +146,7 @@ def _parse_tool_breakdown(raw: str):
         usages = []
         for client_match, inferred_match, detail_text in re.findall(
             r"CLIENT:\s*(.+?)\s*\n(?:INFERRED:\s*(.+?)\s*\n)?DETAIL:\s*(.+?)(?=\n\s*CLIENT:|\Z)",
-            block, re.DOTALL,
+            block, re.DOTALL | re.IGNORECASE,
         ):
             client = client_match.strip()
             detail = " ".join(detail_text.split())  # collapse wrapped newlines/whitespace
@@ -297,11 +304,13 @@ def generate_vendor_qa(resume_text: str, jd_text: str = "", provider: str = "gro
 
 
 def _parse_vendor_qa(raw: str):
+    # Case-insensitive for the same reason as _parse_tool_breakdown above - different Answer
+    # engines don't reliably reproduce the exact requested casing.
     items = []
     for block in raw.split("==="):
-        cat_match = re.search(r"CATEGORY:\s*(.+)", block)
-        q_match = re.search(r"QUESTION:\s*(.+?)(?=\nANSWER:|\Z)", block, re.DOTALL)
-        a_match = re.search(r"ANSWER:\s*(.+)", block, re.DOTALL)
+        cat_match = re.search(r"CATEGORY:\s*(.+)", block, re.IGNORECASE)
+        q_match = re.search(r"QUESTION:\s*(.+?)(?=\nANSWER:|\Z)", block, re.DOTALL | re.IGNORECASE)
+        a_match = re.search(r"ANSWER:\s*(.+)", block, re.DOTALL | re.IGNORECASE)
         if not (cat_match and q_match and a_match):
             continue
         items.append({

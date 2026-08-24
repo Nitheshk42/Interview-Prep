@@ -70,10 +70,17 @@ purchases = Table(
     "purchases", _metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("username", String(255), ForeignKey("users.username"), nullable=False),
-    Column("tier", String(32), nullable=False),  # e.g. "sprint"
-    Column("status", String(32), nullable=False, server_default="pending"),  # pending|active|expired
+    Column("tier", String(32), nullable=False),  # "sprint" | "student" | "pro_monthly"
+    Column("status", String(32), nullable=False, server_default="pending"),  # pending|active|expired|cancelled
     Column("stripe_customer_id", String(255)),
     Column("stripe_session_id", String(255)),
+    # Only set for the recurring "pro_monthly" tier - lets the webhook find and deactivate the
+    # right row when Stripe reports the subscription itself was cancelled (customer.subscription.
+    # deleted), since a subscription's lifecycle isn't tied to a single Checkout Session the way
+    # the one-time tiers are.
+    Column("stripe_subscription_id", String(255)),
+    # NULL for pro_monthly (a subscription stays active until cancelled, not until a fixed date) -
+    # set to a real timestamp for the one-time tiers (sprint/student), which DO expire.
     Column("expires_at", String(64)),
     Column("created_at", String(64)),
 )
@@ -115,6 +122,7 @@ def init_db():
     # column that already exists (re-running this on every boot, across workers) is a no-op.
     migrations = [
         "ALTER TABLE profiles ADD COLUMN resume_text TEXT",
+        "ALTER TABLE purchases ADD COLUMN stripe_subscription_id VARCHAR(255)",
     ]
     for stmt in migrations:
         try:
@@ -374,39 +382,76 @@ def create_pending_purchase(username: str, tier: str, stripe_session_id: str) ->
         return result.scalar()
 
 
-def activate_purchase(stripe_session_id: str, stripe_customer_id: str | None, expires_at: str) -> bool:
+def activate_purchase(
+    stripe_session_id: str, stripe_customer_id: str | None, expires_at: str | None,
+    stripe_subscription_id: str | None = None,
+) -> bool:
     """Called from the Stripe webhook on checkout.session.completed - the only place a purchase
     should ever flip from pending to active, since it's the only signal that's actually been
-    verified by Stripe's webhook signature, not just claimed by the browser."""
+    verified by Stripe's webhook signature, not just claimed by the browser.
+
+    expires_at is None for the recurring pro_monthly tier (a subscription doesn't have a fixed
+    end date - it stays active until cancelled, see deactivate_subscription below) and a real
+    timestamp for the one-time tiers (sprint/student)."""
     with _engine.begin() as conn:
         result = conn.execute(
-            text("""UPDATE purchases SET status = 'active', stripe_customer_id = :cust, expires_at = :exp
-                    WHERE stripe_session_id = :sid"""),
-            {"cust": stripe_customer_id, "exp": expires_at, "sid": stripe_session_id},
+            text("""UPDATE purchases SET status = 'active', stripe_customer_id = :cust,
+                    expires_at = :exp, stripe_subscription_id = :sub_id WHERE stripe_session_id = :sid"""),
+            {"cust": stripe_customer_id, "exp": expires_at, "sub_id": stripe_subscription_id, "sid": stripe_session_id},
         )
         return result.rowcount > 0
 
 
-def has_active_sprint(username: str) -> bool:
+def deactivate_subscription(stripe_subscription_id: str) -> bool:
+    """Called from the webhook on customer.subscription.deleted - the signal that a pro_monthly
+    subscription actually ended (cancelled, or payment failed and Stripe gave up retrying), since
+    unlike the one-time tiers there's no expires_at counting down on its own."""
+    with _engine.begin() as conn:
+        result = conn.execute(
+            text("UPDATE purchases SET status = 'cancelled' WHERE stripe_subscription_id = :sub_id"),
+            {"sub_id": stripe_subscription_id},
+        )
+        return result.rowcount > 0
+
+
+def get_active_purchase(username: str) -> dict | None:
+    """Returns {tier, expires_at} for whichever paid tier is currently active, or None. A row
+    counts as active if status='active' AND EITHER it has no expiry (pro_monthly - active until
+    cancelled) OR its expires_at is still in the future (sprint/student - active until the window
+    runs out). Only one active tier is expected at a time in practice, but if somehow more than
+    one exists, the one with the furthest-out (or no) expiry wins - the more generous access."""
     now = _now()
     with _engine.connect() as conn:
-        row = conn.execute(
-            text("""SELECT 1 FROM purchases WHERE username = :username AND tier = 'sprint'
-                    AND status = 'active' AND expires_at > :now LIMIT 1"""),
+        rows = conn.execute(
+            text("""SELECT tier, expires_at FROM purchases WHERE username = :username
+                    AND status = 'active' AND (expires_at IS NULL OR expires_at > :now)"""),
             {"username": username, "now": now},
-        ).fetchone()
-        return row is not None
+        ).fetchall()
+        if not rows:
+            return None
+        # None (no expiry) sorts as "furthest out" - a pro_monthly subscription wins over a
+        # simultaneously-active one-time tier, since it's the more generous access anyway.
+        best = max(rows, key=lambda r: (r[1] is None, r[1] or ""))
+        return {"tier": best[0], "expires_at": best[1]}
+
+
+def has_active_sprint(username: str) -> bool:
+    """Kept for any old caller - has_active_paid() below is the general form any NEW code should
+    use, since a Pro Monthly subscriber should also bypass the free-tier caps, not just Sprint."""
+    purchase = get_active_purchase(username)
+    return purchase is not None and purchase["tier"] == "sprint"
+
+
+def has_active_paid(username: str) -> bool:
+    """True if ANY paid tier (sprint, student, or pro_monthly) is currently active - this is what
+    the free-tier usage cap should actually check, not just Sprint specifically."""
+    return get_active_purchase(username) is not None
 
 
 def get_active_sprint_expiry(username: str) -> str | None:
-    now = _now()
-    with _engine.connect() as conn:
-        row = conn.execute(
-            text("""SELECT expires_at FROM purchases WHERE username = :username AND tier = 'sprint'
-                    AND status = 'active' AND expires_at > :now ORDER BY expires_at DESC LIMIT 1"""),
-            {"username": username, "now": now},
-        ).fetchone()
-        return row[0] if row else None
+    """Kept for any old caller - get_active_purchase() above is the general form."""
+    purchase = get_active_purchase(username)
+    return purchase["expires_at"] if purchase and purchase["tier"] == "sprint" else None
 
 
 def get_usage_today(username: str, bucket: str) -> int:
