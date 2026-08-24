@@ -11,11 +11,52 @@ or interview knowing their own resume cold.
    way a vendor needs to hear it before they'll submit the candidate to a client.
 """
 import re
+from concurrent.futures import ThreadPoolExecutor
 from langchain_core.prompts import ChatPromptTemplate
 from app.services.llm_provider import get_llm, invoke_and_check_truncation
 
+# How many tools' rich per-client detail gets requested in a single LLM call (see
+# generate_tool_breakdown's two-pass design below). Small enough that even a long resume's context
+# plus this many tools' worth of 2-3-sentence-per-client output stays comfortably under Groq's
+# hard 12,000-tokens-PER-REQUEST ceiling, regardless of how many tools the resume has in total.
+DETAIL_BATCH_SIZE = 4
 
-TOOL_BREAKDOWN_TEMPLATE = """You are helping a candidate "sync" with their own resume before a
+
+TOOL_LIST_TEMPLATE = """You are helping a candidate identify every distinct tool, technology,
+language, platform, framework, or methodology actually mentioned in their resume (e.g. Java,
+Kafka, AWS, Kubernetes, Agile/Scrum, Jenkins, React, SQL Server, Hadoop - whatever genuinely
+appears). This is a first pass to build the complete LIST only - per-client detail comes in a
+later step, so keep this fast and just cover EVERY tool, however many there are.
+
+RESUME:
+{resume_text}
+
+For EACH tool, work out:
+- EXPERIENCE: total time used, estimated from the date ranges of the client/project entries where
+  it appears (e.g. "3 years 2 months" or "2+ years" if ranges are approximate). If a tool appears
+  across multiple non-contiguous roles, add the periods together rather than just citing the most
+  recent one.
+- LEVEL: one of Beginner / Intermediate / Advanced / Expert, judged from how central the tool was
+  to the role, how long it was used, and how deeply it's described (not just whether it's
+  mentioned once in a skills list).
+
+Do NOT invent a tool that isn't actually in the resume. Do NOT skip a tool just because it only
+appears once - list it with whatever real duration that one appearance supports. Order the list
+with the tools used most extensively (longest total experience) first. Do not write anything about
+which clients used which tool - that's a separate step, skip it entirely here.
+
+Respond with each tool as a block in EXACTLY this format, separated by ===, nothing else, no
+extra commentary:
+
+TOOL: <tool name>
+EXPERIENCE: <total time>
+LEVEL: <Beginner|Intermediate|Advanced|Expert>
+===
+
+Begin now:"""
+
+
+TOOL_DETAIL_TEMPLATE = """You are helping a candidate "sync" with their own resume before a
 vendor screening call or interview. Picture the exact moment this is for: a vendor calls and asks
 "do you have experience with Hadoop?" The candidate says "yes, 6 years." The vendor's very next
 question is "where, and what did you actually do with it?" - and a candidate who can only name a
@@ -29,62 +70,49 @@ sentence per client is not enough; it will not survive a follow-up question.
 RESUME:
 {resume_text}
 
-Go through this resume and identify EVERY distinct tool, technology, language, platform,
-framework, or methodology actually mentioned (e.g. Java, Kafka, AWS, Kubernetes, Agile/Scrum,
-Jenkins, React, SQL Server, Hadoop - whatever genuinely appears). For EACH one, work out:
+Write per-client detail for ONLY these specific tools, and nothing else - do not write about any
+other tool even if it appears in the resume, it's covered in a separate batch: {tool_names}
 
-- EXPERIENCE: total time used, estimated from the date ranges of the client/project entries
-  where it appears (e.g. "3 years 2 months" or "2+ years" if ranges are approximate). If a tool
-  appears across multiple non-contiguous roles, add the periods together rather than just citing
-  the most recent one.
-- LEVEL: one of Beginner / Intermediate / Advanced / Expert, judged from how central the tool was
-  to the role, how long it was used, and how deeply it's described (not just whether it's
-  mentioned once in a skills list).
-- Then, for EVERY client/company/project (in the format the resume uses) where this tool was
-  actually used, most recent first, write a REAL, SPEAKABLE answer - 2 to 3 full sentences, not
-  one fragment - that a candidate could say out loud verbatim if a vendor asked "what did you do
-  with this there?" Each one must cover:
-    1. What was actually built or the problem solved (the concrete deliverable, not "worked on
-       data pipelines").
-    2. The specific sub-components/ecosystem pieces used if identifiable (e.g. for Hadoop: HDFS,
-       Hive, YARN, MapReduce, Sqoop; for AWS: which specific services).
-    3. Scale, data volume, team size, or frequency if known or reasonably implied.
+For EACH of those tools, for EVERY client/company/project (in the format the resume uses) where it
+was actually used, most recent first, write a REAL, SPEAKABLE answer - 2 to 3 full sentences, not
+one fragment - that a candidate could say out loud verbatim if a vendor asked "what did you do
+with this there?" Each one must cover:
+  1. What was actually built or the problem solved (the concrete deliverable, not "worked on
+     data pipelines").
+  2. The specific sub-components/ecosystem pieces used if identifiable (e.g. for Hadoop: HDFS,
+     Hive, YARN, MapReduce, Sqoop; for AWS: which specific services).
+  3. Scale, data volume, team size, or frequency if known or reasonably implied.
 
-  TWO SOURCES OF TRUTH, use both, and be explicit about which one you used:
-  a) EXPLICIT - the resume directly describes what this tool did in that role's bullet points.
-     Use those specifics verbatim/near-verbatim. Mark this entry INFERRED: no.
-  b) INFERRED - the resume only lists the tool in a skills line for that role, with no dedicated
-     bullet describing it, BUT that role has OTHER bullet points describing the broader
-     project/system, the client's industry, the team's responsibilities, or other tools used
-     alongside it. In that much more common case, DO NOT give up and say "no detail" - reason
-     from that surrounding context the way the candidate themselves would when reconstructing a
-     memory: "I was building X system in the Y industry using these other tools, so realistically
-     this tool's role in that same system was probably Z." Write the same 2-3 sentence speakable
-     answer using that reasoning, grounded in what the role's other bullets actually say, not
-     invented from nothing. Mark this entry INFERRED: yes, and end the DETAIL with one short
-     clause flagging it as a reconstruction to verify, e.g. "...(this isn't spelled out
-     explicitly for this client, so confirm it matches your actual memory before repeating it)."
-  Only fall back to a plain "the resume doesn't give enough context to reconstruct this" when a
-  client's role has genuinely NO other bullets/context to reason from at all (rare - a skills-only
-  listing with zero role description anywhere for that entry). Mark that INFERRED: yes too.
+TWO SOURCES OF TRUTH, use both, and be explicit about which one you used:
+a) EXPLICIT - the resume directly describes what this tool did in that role's bullet points.
+   Use those specifics verbatim/near-verbatim. Mark this entry INFERRED: no.
+b) INFERRED - the resume only lists the tool in a skills line for that role, with no dedicated
+   bullet describing it, BUT that role has OTHER bullet points describing the broader
+   project/system, the client's industry, the team's responsibilities, or other tools used
+   alongside it. In that much more common case, DO NOT give up and say "no detail" - reason
+   from that surrounding context the way the candidate themselves would when reconstructing a
+   memory: "I was building X system in the Y industry using these other tools, so realistically
+   this tool's role in that same system was probably Z." Write the same 2-3 sentence speakable
+   answer using that reasoning, grounded in what the role's other bullets actually say, not
+   invented from nothing. Mark this entry INFERRED: yes, and end the DETAIL with one short
+   clause flagging it as a reconstruction to verify, e.g. "...(this isn't spelled out
+   explicitly for this client, so confirm it matches your actual memory before repeating it)."
+Only fall back to a plain "the resume doesn't give enough context to reconstruct this" when a
+client's role has genuinely NO other bullets/context to reason from at all (rare - a skills-only
+listing with zero role description anywhere for that entry). Mark that INFERRED: yes too.
 
-  Never write the same description twice for two different clients even if the resume's phrasing
-  for them is similar - find the real distinguishing detail (different data source, different
-  scale, different part of the pipeline, different team's need, different industry).
+Never write the same description twice for two different clients even if the resume's phrasing
+for them is similar - find the real distinguishing detail (different data source, different
+scale, different part of the pipeline, different team's need, different industry).
 
-Do NOT invent a tool that isn't actually in the resume. For EXPLICIT entries, do not invent
-specifics beyond what's written. For INFERRED entries, reasoning from the role's real surrounding
-context is expected and encouraged - that's the whole point - but never invent a company, metric,
-or system that doesn't appear anywhere in the resume. Do NOT skip a tool just because it only
-appears once - list it with whatever real duration/client that one appearance supports. Order the
-list with the tools used most extensively (longest total experience) first.
+Do NOT invent a client, metric, or system that doesn't appear anywhere in the resume. For INFERRED
+entries, reasoning from the role's real surrounding context is expected and encouraged - that's
+the whole point - but stay grounded in what's actually there.
 
-Respond with each tool as a block in EXACTLY this format, separated by ===, nothing else, no
-extra commentary. Repeat the CLIENT/INFERRED/DETAIL trio once per client that tool was used at:
+Respond with each of the requested tools as a block in EXACTLY this format, separated by ===,
+nothing else, no extra commentary. Repeat the CLIENT/INFERRED/DETAIL trio once per client:
 
-TOOL: <tool name>
-EXPERIENCE: <total time>
-LEVEL: <Beginner|Intermediate|Advanced|Expert>
+TOOL: <tool name - must be one of the ones listed above>
 CLIENT: <Client A>
 INFERRED: <yes|no>
 DETAIL: <2-3 full, speakable sentences - what was built, ecosystem pieces used, scale if known>
@@ -99,38 +127,68 @@ Begin now:"""
 def generate_tool_breakdown(resume_text: str, provider: str = "groq"):
     """Returns (tools: list[dict], truncated: bool). Each tool dict has tool/experience/level and
     usages: list[{client, detail}] - the per-client breakdown of how that tool was actually used,
-    since the same tool is rarely used identically across different client engagements."""
-    # IMPORTANT - this is capped by a DIFFERENT limit than the 100K/day figure elsewhere in this
-    # file: Groq's free/on_demand tier also enforces a hard 12,000 TOKENS PER REQUEST ceiling
-    # (prompt + max_tokens combined), independent of the daily budget. This endpoint sends the
-    # FULL resume text as input (this template + a real resume commonly runs ~7-8K tokens on its
-    # own), so max_tokens has to leave real headroom under 12,000 rather than being pushed as high
-    # as the daily budget alone would allow - a request that exceeds it fails outright with a 413,
-    # not a graceful truncation. 9000 was too high (a real request hit 16,395 total and got
-    # rejected); this is set conservatively enough that prompt + max_tokens stays under the cap
-    # for realistically long resumes.
-    llm = get_llm(provider=provider, temperature=0.2, max_tokens=4000)
-    prompt = ChatPromptTemplate.from_template(TOOL_BREAKDOWN_TEMPLATE)
-    messages = prompt.format_messages(resume_text=resume_text)
-    result, truncated = invoke_and_check_truncation(llm, messages)
-    tools = _parse_tool_breakdown(result)
+    since the same tool is rarely used identically across different client engagements.
+
+    TWO-PASS DESIGN - this used to be one giant LLM call asking for every tool AND every client's
+    full narrative at once. That worked for a short resume, but Groq's free tier also enforces a
+    hard 12,000-TOKENS-PER-REQUEST ceiling (prompt + output combined, separate from the 100K/day
+    budget), and a resume with a dozen-plus tools each needing several rich per-client sentences
+    can easily need more OUTPUT than that ceiling allows - the response then gets cut off
+    mid-list, and whatever tools hadn't been written yet just never appear (seen in production: a
+    resume with far more than 3 tools only showed 3, with a truncation warning).
+
+    Splitting into two passes fixes this regardless of resume size:
+    1. A cheap first call lists EVERY tool with just its total experience/level - no per-client
+       narrative yet, so this is a small enough request to always finish completely no matter how
+       many tools exist.
+    2. The rich per-client detail is then generated in small batches (DETAIL_BATCH_SIZE tools per
+       call, run concurrently) - each batch's output is small enough to stay well under the
+       per-request ceiling even though the full resume text is resent each time, so no batch
+       truncates either. A sync now takes a bit longer overall (several calls instead of one) and
+       uses somewhat more total tokens - a deliberate trade for "never silently drops tools"."""
+    tool_list, truncated = _generate_tool_list(resume_text, provider)
+    if not tool_list:
+        return [], truncated
+
+    batches = [tool_list[i:i + DETAIL_BATCH_SIZE] for i in range(0, len(tool_list), DETAIL_BATCH_SIZE)]
+
+    def _run_batch(batch):
+        names = [t["tool"] for t in batch]
+        return _generate_tool_details(resume_text, names, provider)
+
+    details_by_name = {}
+    with ThreadPoolExecutor(max_workers=min(4, len(batches))) as executor:
+        for batch_details, batch_truncated in executor.map(_run_batch, batches):
+            truncated = truncated or batch_truncated
+            details_by_name.update(batch_details)
+
+    tools = []
+    for t in tool_list:
+        detail_entry = details_by_name.get(t["tool"].strip().lower())
+        usages = detail_entry["usages"] if detail_entry else []
+        tools.append({
+            "tool": t["tool"],
+            "experience": t["experience"],
+            "level": t["level"],
+            "usages": usages,
+            # Kept for anything still reading the old flat "clients" shape.
+            "clients": [u["client"] for u in usages],
+        })
     return tools, truncated
 
 
-def _parse_tool_breakdown(raw: str):
-    """Each tool block has repeated CLIENT:/INFERRED:/DETAIL: line trios (DETAIL can span
-    multiple lines - it's 2-3 full sentences, not a one-liner). INFERRED distinguishes an answer
-    the resume states directly from one reconstructed from the role's surrounding context - see
-    TOOL_BREAKDOWN_TEMPLATE's "two sources of truth" instructions."""
-    # Case-insensitive throughout: different LLM providers/models don't reliably reproduce the
-    # exact "TOOL:"/"EXPERIENCE:" casing asked for in the prompt (one might write "Tool:" instead)
-    # - a case-sensitive regex would then match nothing at all and silently return zero tools,
-    # even though the model answered the question correctly. This was seen in production after
-    # switching Answer engines: a perfectly good answer came back, but the strict-case parser
-    # couldn't read it, so the endpoint reported "couldn't extract a tool breakdown" for a synced
-    # resume that had actually been read and summarized just fine.
+def _generate_tool_list(resume_text: str, provider: str):
+    """Pass 1 - see generate_tool_breakdown's docstring. Returns (list[{tool, experience, level}],
+    truncated: bool). Cheap enough (no per-client narrative) that this should essentially never
+    truncate, but still checked - a truncated tool LIST would mean tools are missing before pass 2
+    even starts, which is worth surfacing to the user same as any other truncation."""
+    llm = get_llm(provider=provider, temperature=0.2, max_tokens=1500)
+    prompt = ChatPromptTemplate.from_template(TOOL_LIST_TEMPLATE)
+    messages = prompt.format_messages(resume_text=resume_text)
+    result, truncated = invoke_and_check_truncation(llm, messages)
+
     tools = []
-    for block in raw.split("==="):
+    for block in result.split("==="):
         tool_match = re.search(r"TOOL:\s*(.+)", block, re.IGNORECASE)
         exp_match = re.search(r"EXPERIENCE:\s*(.+)", block, re.IGNORECASE)
         level_match = re.search(r"LEVEL:\s*(.+)", block, re.IGNORECASE)
@@ -139,10 +197,34 @@ def _parse_tool_breakdown(raw: str):
         tool = tool_match.group(1).strip()
         if not tool or tool.lower() in ("tool", "none", "n/a"):
             continue
+        tools.append({
+            "tool": tool,
+            "experience": exp_match.group(1).strip(),
+            "level": level_match.group(1).strip(),
+        })
+    return tools, truncated
 
-        # Each CLIENT: line starts a new entry; INFERRED: is optional (older cached syncs won't
-        # have it - defaults to False rather than breaking); everything under DETAIL: (including
-        # wrapped lines) belongs to that client, up until the next CLIENT: line or end of block.
+
+def _generate_tool_details(resume_text: str, tool_names: list[str], provider: str):
+    """Pass 2, one batch - see generate_tool_breakdown's docstring. Returns
+    ({tool_name_lowercase: {"usages": [...]}, ...}, truncated: bool) for just this batch of tools."""
+    llm = get_llm(provider=provider, temperature=0.2, max_tokens=2200)
+    prompt = ChatPromptTemplate.from_template(TOOL_DETAIL_TEMPLATE)
+    messages = prompt.format_messages(resume_text=resume_text, tool_names=", ".join(tool_names))
+    result, truncated = invoke_and_check_truncation(llm, messages)
+
+    details = {}
+    for block in result.split("==="):
+        tool_match = re.search(r"TOOL:\s*(.+)", block, re.IGNORECASE)
+        if not tool_match:
+            continue
+        tool = tool_match.group(1).strip()
+        if not tool:
+            continue
+
+        # Each CLIENT: line starts a new entry; INFERRED: is optional; everything under DETAIL:
+        # (including wrapped lines) belongs to that client, up until the next CLIENT: line or end
+        # of block. Case-insensitive throughout - see generate_tool_breakdown's docstring on why.
         usages = []
         for client_match, inferred_match, detail_text in re.findall(
             r"CLIENT:\s*(.+?)\s*\n(?:INFERRED:\s*(.+?)\s*\n)?DETAIL:\s*(.+?)(?=\n\s*CLIENT:|\Z)",
@@ -154,15 +236,8 @@ def _parse_tool_breakdown(raw: str):
             if client:
                 usages.append({"client": client, "detail": detail, "inferred": inferred})
 
-        tools.append({
-            "tool": tool,
-            "experience": exp_match.group(1).strip(),
-            "level": level_match.group(1).strip(),
-            "usages": usages,
-            # Kept for anything still reading the old flat "clients" shape.
-            "clients": [u["client"] for u in usages],
-        })
-    return tools
+        details[tool.lower()] = {"usages": usages}
+    return details, truncated
 
 
 VENDOR_QA_TEMPLATE = """You are simulating a REAL vendor/staffing agency screening call - the kind
