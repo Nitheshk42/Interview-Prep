@@ -202,6 +202,16 @@ def _generate_tool_list(resume_text: str, provider: str):
             "experience": exp_match.group(1).strip(),
             "level": level_match.group(1).strip(),
         })
+
+    if not tools:
+        # Nothing parsed at all - this is exactly the failure mode that shows the user "Couldn't
+        # extract a tool breakdown," and until now there was no way to tell WHY from Render's logs
+        # (the LLM call itself succeeded - no exception - it's the parser that came up empty). This
+        # prints the model's actual raw response so the real cause (wrong format, refusal, empty
+        # completion, etc.) is visible in the logs the next time this happens, instead of just a
+        # generic "couldn't extract" with no signal.
+        print(f"[resume_sync] Pass-1 tool list parse failed (provider={provider}). Raw model output was:\n{result[:3000]}")
+
     return tools, truncated
 
 
@@ -237,6 +247,13 @@ def _generate_tool_details(resume_text: str, tool_names: list[str], provider: st
                 usages.append({"client": client, "detail": detail, "inferred": inferred})
 
         details[tool.lower()] = {"usages": usages}
+
+    if not details:
+        # Same visibility gap as _generate_tool_list above - a batch coming back with zero parsed
+        # tools currently just means those tools silently show "no client detail" in the UI, with
+        # nothing in the logs explaining why. This makes that batch's actual raw output visible.
+        print(f"[resume_sync] Pass-2 detail batch parse failed for tools={tool_names} (provider={provider}). Raw model output was:\n{result[:3000]}")
+
     return details, truncated
 
 
