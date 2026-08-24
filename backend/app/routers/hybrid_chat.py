@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from app.deps import enforce_usage_cap
+from app import db
 from app.services.vector_store import get_vectorstore
 from app.services.rag_pipeline_hybrid import route_question, answer_resume_fact, answer_technical_deep_dive
 from app.services.rag_pipeline import _wants_full_resume
@@ -72,4 +73,5 @@ def ask(payload: HybridChatRequest, username: str = Depends(enforce_usage_cap("q
     resume_side = resume_future.result()
     technical_side = technical_future.result()
 
+    db.increment_usage_today(username, "questions")  # counted only now that both answers came back
     return HybridChatResponse(category=category, reason=reason, resume=resume_side, technical=technical_side)

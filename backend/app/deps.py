@@ -34,18 +34,23 @@ FREE_TIER_CAPS = {
 
 
 def enforce_usage_cap(bucket: str):
-    """Returns a FastAPI dependency that: (1) requires a valid logged-in user, (2) lets Sprint
-    purchasers through uncapped, (3) otherwise blocks with 402 once today's free cap is hit, and
-    (4) increments the counter on every allowed call. 402 Payment Required (not 429) so the
-    frontend can tell "you're rate-limited, wait" apart from "you're capped, go pay" - the two
-    need different UI (a retry-later message vs. an upgrade prompt)."""
+    """Returns a FastAPI dependency that (1) requires a valid logged-in user and (2) blocks with
+    402 once today's free cap is hit for this bucket - Sprint purchasers pass through uncapped.
+
+    Deliberately does NOT increment the counter here. This only CHECKS the cap; the endpoint
+    itself calls db.increment_usage_today() once the underlying work actually succeeds (see
+    chat.py/hybrid_chat.py/level_chat.py/resume_sync.py). Incrementing here, before the LLM call
+    even runs, meant a failed attempt (a Groq rate-limit error, a transient network blip, anything
+    that made the request fail for a reason having nothing to do with the cap) still burned a
+    slot - so a handful of retries during a real outage could lock someone out with an "upgrade"
+    message despite never getting a single working answer out of it. Counting on success instead
+    means the cap always reflects real usage."""
     from fastapi import Depends
 
     limit = FREE_TIER_CAPS[bucket]
 
     def dependency(username: str = Depends(get_current_user)) -> str:
         if db.has_active_sprint(username):
-            db.increment_usage_today(username, bucket)  # tracked for visibility even though uncapped
             return username
         used = db.get_usage_today(username, bucket)
         if used >= limit:
@@ -56,7 +61,6 @@ def enforce_usage_cap(bucket: str):
                     "Upgrade to Career Sprint for unlimited use during your prep window."
                 ),
             )
-        db.increment_usage_today(username, bucket)
         return username
 
     return dependency

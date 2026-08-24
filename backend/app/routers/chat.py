@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from app.deps import enforce_usage_cap
 from app.services.vector_store import get_vectorstore
 from app.services.rag_pipeline import answer_question, _wants_full_resume
+from app import db
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -60,6 +61,7 @@ def ask(payload: ChatRequest, username: str = Depends(enforce_usage_cap("questio
     )
     full_resume_used = _wants_full_resume(payload.question)
     match_pcts = _relative_match_pcts([float(score) for _doc, score in retrieved])
+    db.increment_usage_today(username, "questions")  # counted only now that an answer actually came back
     return ChatResponse(
         answer=answer,
         retrieved=[

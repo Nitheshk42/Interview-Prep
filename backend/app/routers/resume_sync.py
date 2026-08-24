@@ -19,24 +19,36 @@ router = APIRouter(prefix="/resume-sync", tags=["resume-sync"])
 
 def _call_llm_or_friendly_error(fn, *args, **kwargs):
     """Both endpoints below send the full resume text as input, which makes them the two calls
-    in the app most likely to hit Groq's hard 12,000-tokens-PER-REQUEST ceiling (a real, longer
-    resume can genuinely fill most of that on input alone). That failure comes back from the Groq
-    SDK as a raw exception, which - left uncaught - becomes an unhandled 500, and a 500 strips
-    CORS headers, which is what actually caused the confusing "blocked by CORS policy" error a
-    user saw in the browser console (the request never had a CORS problem; it had a token-limit
-    problem that crashed before a response could be built at all). Catching it here and returning
-    a real HTTPException means the user sees an honest, actionable message instead of that."""
+    in the app most likely to hit an upstream LLM provider failure - either Groq's hard
+    12,000-tokens-PER-REQUEST ceiling (a real, longer resume can genuinely fill most of that on
+    input alone), or a plain provider-side outage/overload (seen in production: Gemini returning
+    "503 - This model is currently experiencing high demand... UNAVAILABLE"). Both come back from
+    the SDK as a raw exception, which - left uncaught - becomes an unhandled 500, and a 500 strips
+    CORS headers, which is what makes the browser report a confusing "Failed to fetch"/"blocked by
+    CORS policy" instead of a real error message (the request never had a CORS problem; the
+    backend crashed before a response could be built at all). Catching both cases here and
+    returning a real HTTPException means the user sees an honest, actionable message instead."""
     try:
         return fn(*args, **kwargs)
     except Exception as exc:
         message = str(exc)
-        if "413" in message or "rate_limit_exceeded" in message or "tokens per minute" in message.lower():
+        lower = message.lower()
+        if "413" in message or "rate_limit_exceeded" in lower or "tokens per minute" in lower:
             raise HTTPException(
                 status_code=413,
                 detail=(
                     "Your resume is too long for one request on the current Answer engine's free "
                     "tier. Try switching the Answer engine in the sidebar (Gemini doesn't have "
                     "this same per-request limit), or trim your resume and try again."
+                ),
+            )
+        if "503" in message or "unavailable" in lower or "overloaded" in lower or "high demand" in lower:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "The Answer engine is temporarily overloaded on their end - this isn't "
+                    "something wrong with your resume. Try again in a moment, or switch the "
+                    "Answer engine in the sidebar."
                 ),
             )
         raise
@@ -82,11 +94,12 @@ def tool_breakdown(payload: ToolBreakdownRequest, username: str = Depends(enforc
             status_code=502,
             detail="Couldn't extract a tool breakdown from the resume — try again, or switch the Answer engine.",
         )
+    db.increment_usage_today(username, "resume_sync")  # counted only now that a breakdown actually came back
     return ToolBreakdownResponse(tools=tools, truncated=truncated)
 
 
 class VendorQaRequest(BaseModel):
-    jd_text: str
+    jd_text: str = ""  # optional - blank means "generic vendor screening prep, no specific JD yet"
     provider: str = "groq"
     num_questions: int = 8
 
@@ -106,12 +119,15 @@ class VendorQaResponse(BaseModel):
 
 @router.post("/vendor-qa", response_model=VendorQaResponse)
 def vendor_qa(payload: VendorQaRequest, username: str = Depends(enforce_usage_cap("resume_sync"))):
-    if not payload.jd_text or not payload.jd_text.strip():
-        raise HTTPException(status_code=400, detail="Job description cannot be empty.")
+    has_jd = bool(payload.jd_text and payload.jd_text.strip())
 
-    jd_hash = jd_fingerprint(payload.jd_text)
+    # A blank JD still gets a stable fingerprint (jd_fingerprint("") is deterministic), so the
+    # same dedup-by-hash mechanism below also covers "generic prep, no JD" - a second click with
+    # no JD reuses the saved generic session instead of spending tokens regenerating the same
+    # resume-only questions again.
+    jd_hash = jd_fingerprint(payload.jd_text or "")
 
-    # Dedup: this exact JD was already prepped for this user - reuse it, spend zero tokens.
+    # Dedup: this exact JD (or "no JD" case) was already prepped for this user - reuse it, spend zero tokens.
     existing_id = db.find_session_by_jd_hash(username, "resume_sync_qa", jd_hash)
     if existing_id:
         session = db.get_chat_session(username, existing_id)
@@ -136,9 +152,12 @@ def vendor_qa(payload: VendorQaRequest, username: str = Depends(enforce_usage_ca
             detail="Couldn't generate vendor Q&A — try again, or switch the Answer engine.",
         )
 
-    title = payload.jd_text.strip().splitlines()[0][:80] or "Vendor JD prep"
+    title = (payload.jd_text.strip().splitlines()[0][:80] if has_jd else None) or "Vendor screening prep"
     session_id = db.create_chat_session(username, "resume_sync_qa", title, jd_hash=jd_hash)
     response_payload = {"items": [i for i in items], "truncated": truncated}
     db.append_chat_message(username, session_id, payload.jd_text.strip(), json.dumps(response_payload))
 
+    # Not counted for the from_cache path above (no LLM call was made there, so it shouldn't cost
+    # a slot) - only this fresh-generation path spends real tokens, so only this one counts.
+    db.increment_usage_today(username, "resume_sync")
     return VendorQaResponse(items=items, truncated=truncated, from_cache=False, session_id=session_id)

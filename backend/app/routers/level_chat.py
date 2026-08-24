@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from app.deps import enforce_usage_cap
+from app import db
 from app.services.vector_store import get_vectorstore
 from app.services.rag_pipeline_hybrid import answer_at_level, LEVEL_ORDER
 from app.services.rag_pipeline import _wants_full_resume
@@ -58,4 +59,5 @@ def ask(payload: LevelChatRequest, username: str = Depends(enforce_usage_cap("qu
     }
     answers = {level: fut.result() for level, fut in futures.items()}
 
+    db.increment_usage_today(username, "questions")  # counted only now that all four levels came back
     return LevelChatResponse(answers=answers)

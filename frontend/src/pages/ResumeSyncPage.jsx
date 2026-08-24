@@ -269,10 +269,10 @@ function VendorPrepTab() {
   }, [refreshSessions]);
 
   async function handleGenerate() {
-    if (!jdText.trim()) {
-      setError("Please paste a job description first.");
-      return;
-    }
+    // JD is optional now - a real vendor screening call usually happens BEFORE a specific JD is
+    // even shared, so requiring one first was unnecessary friction. Without one, the backend
+    // generates the same category set (rate, availability, work auth, tool depth, etc.) straight
+    // from the resume; pasting a JD still tailors it to that specific role.
     setError("");
     setCapHit(false);
     setBusy(true);
@@ -356,11 +356,14 @@ function VendorPrepTab() {
       />
       <div className="flex-1 px-6">
         <div className="border border-gray-200 rounded-xl p-4 mb-4">
-          <p className="text-sm font-medium text-gray-900 mb-2">Paste the job description the vendor sent</p>
+          <p className="text-sm font-medium text-gray-900 mb-1">Job description (optional)</p>
+          <p className="text-xs text-gray-500 mb-2">
+            Works with just your resume — pasting a JD tailors the questions to that specific role.
+          </p>
           <textarea
             value={jdText}
             onChange={(e) => setJdText(e.target.value)}
-            placeholder="Paste the job description here..."
+            placeholder="Optional — paste a job description here to tailor questions to a specific role..."
             rows={7}
             className="w-full border border-gray-300 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
           />
@@ -370,7 +373,7 @@ function VendorPrepTab() {
             disabled={busy}
             className="w-full mt-3 bg-accent text-white rounded-lg py-2.5 text-sm font-medium hover:brightness-110 transition disabled:opacity-60"
           >
-            {busy ? "📞 Simulating the vendor screening call..." : "📞 Prep for this vendor call"}
+            {busy ? "📞 Simulating the vendor screening call..." : "📞 Prep for a vendor call"}
           </button>
         </div>
 
@@ -382,7 +385,7 @@ function VendorPrepTab() {
           <>
             {fromCache && (
               <p className="text-xs text-emerald-700 mb-3">
-                ⚡ Loaded from a previous sync for this exact JD — no tokens spent regenerating it.
+                ⚡ Loaded from a previous sync for {jdText.trim() ? "this exact JD" : "general prep"} — no tokens spent regenerating it.
               </p>
             )}
             <div className="space-y-3">
