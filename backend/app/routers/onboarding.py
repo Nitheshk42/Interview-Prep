@@ -17,17 +17,29 @@ def user_data_dir(username: str) -> str:
 
 def get_full_resume_text(username: str) -> str:
     """Loads the user's stored resume file fresh and joins every page/chunk's raw text -
-    used by Resume Tailor, which needs the whole document as one string rather than the
-    vector store's small retrieved chunks. Cheap enough to just re-read on each request
-    instead of caching, since resumes are small and this keeps the backend stateless."""
+    used by Resume Sync, Resume Tailor, and My JD Answers, which need the whole document as one
+    string rather than the vector store's small retrieved chunks. Cheap enough to just re-read on
+    each request instead of caching, since resumes are small and this keeps the backend stateless."""
     from app.services.document_loader import load_documents
     from app.services import gcs_storage
 
     data_dir = user_data_dir(username)
-    if (not os.path.isdir(data_dir) or not os.listdir(data_dir)) and gcs_storage.enabled():
-        # Local disk is empty (fresh Cloud Run instance) - pull the raw resume file(s) back
-        # from Cloud Storage before reading them.
-        gcs_storage.restore_dir(data_dir, f"resumes/{username}.tar.gz")
+    if not os.path.isdir(data_dir) or not os.listdir(data_dir):
+        if gcs_storage.enabled():
+            # Local disk is empty (fresh Cloud Run instance) - pull the raw resume file(s) back
+            # from Cloud Storage before reading them.
+            gcs_storage.restore_dir(data_dir, f"resumes/{username}.tar.gz")
+        if not os.path.isdir(data_dir) or not os.listdir(data_dir):
+            # Neither the local disk nor GCS had the raw file (the common case on Render, which
+            # has neither a persistent disk nor GCS configured - a redeploy or free-tier
+            # spin-down wipes the container's disk entirely). The plain resume TEXT is still
+            # durable in Postgres though (saved by process_resume() below via db.set_resume_text),
+            # so fall back to that instead of returning empty and telling the user to re-onboard
+            # even though nothing about their account was actually lost. This mirrors
+            # vector_store.py's get_vectorstore(), which already does the equivalent rebuild for
+            # the vector store - this function just never had the same fallback added for the
+            # plain-text path Resume Sync/Tailor/My JD Answers actually use.
+            return db.get_resume_text(username) or ""
     documents = load_documents(data_dir)
     return "\n".join(doc.page_content for doc in documents)
 
