@@ -18,6 +18,17 @@ PROVIDERS = {
 }
 DEFAULT_PROVIDER = "groq"
 
+# Applied to every model below, including every link in the Groq fallback chain. Without an
+# explicit timeout, the underlying HTTP client's default can be long (or effectively unbounded on
+# some connection issues) - combined with the SDK's own default retry count, a single slow/stuck
+# provider could sit retrying for a long time before with_fallbacks() ever moved to the next
+# model. That's exactly what made Vendor Q&A "just hang" in production after the fallback chain
+# was extended to 4 models - each one silently eating up to (1 + default retries) slow attempts
+# before failing over. A short timeout and a single retry means a bad provider fails fast, so the
+# chain actually reaches a working model quickly instead of the user watching a spinner for ages.
+REQUEST_TIMEOUT_SECONDS = 20
+MAX_RETRIES_PER_MODEL = 1
+
 
 def get_llm(provider: str = DEFAULT_PROVIDER, temperature: float = 0.3, max_tokens: int = 1024):
     provider = provider or DEFAULT_PROVIDER
@@ -39,6 +50,10 @@ def get_llm(provider: str = DEFAULT_PROVIDER, temperature: float = 0.3, max_toke
             api_key=api_key,
             temperature=temperature,
             max_tokens=max_tokens,
+            # See the matching comment on the Groq fallback chain below for why these two are
+            # set explicitly - a slow/stuck provider should fail over fast, not hang.
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            max_retries=MAX_RETRIES_PER_MODEL,
             # Gemini's current Flash models "think" before answering by default, and on the
             # OpenAI-compatible endpoint those invisible reasoning tokens are drawn from the
             # SAME max_tokens budget as the visible answer - with a budget sized for a normal
@@ -102,9 +117,11 @@ def get_llm(provider: str = DEFAULT_PROVIDER, temperature: float = 0.3, max_toke
     if not api_key:
         raise ValueError("GROQ_API_KEY missing! Set it in backend/.env")
 
-    primary = ChatGroq(model="openai/gpt-oss-120b", temperature=temperature, max_tokens=max_tokens, api_key=api_key)
-    fallback_1 = ChatGroq(model="openai/gpt-oss-20b", temperature=temperature, max_tokens=max_tokens, api_key=api_key)
-    fallback_2 = ChatGroq(model="llama-3.1-8b-instant", temperature=temperature, max_tokens=max_tokens, api_key=api_key)
+    common = {"temperature": temperature, "max_tokens": max_tokens, "api_key": api_key,
+              "timeout": REQUEST_TIMEOUT_SECONDS, "max_retries": MAX_RETRIES_PER_MODEL}
+    primary = ChatGroq(model="openai/gpt-oss-120b", **common)
+    fallback_1 = ChatGroq(model="openai/gpt-oss-20b", **common)
+    fallback_2 = ChatGroq(model="llama-3.1-8b-instant", **common)
 
     fallbacks = [fallback_1, fallback_2]
     gemini_key = os.getenv("GEMINI_API_KEY")

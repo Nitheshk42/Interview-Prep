@@ -267,18 +267,19 @@ RESUME:
 JOB DESCRIPTION:
 {jd_text}
 
-Generate {num_questions} realistic vendor screening questions for THIS specific JD, drawn from the
-categories a real vendor actually asks before submission - mix categories naturally, don't do them
-in a fixed order:
-- Tool/technology depth ("How many years of hands-on X do you have, and where did you use it?")
-- Project scope and ownership ("Walk me through your role on the most relevant project.")
-- Availability and notice period
-- Rate expectations / rate justification
-- Work authorization / visa status (ask generically, e.g. "What's your current work authorization
+Write EXACTLY ONE realistic vendor screening question for EACH of these categories, and nothing
+else - do not write about any other category, it's covered in a separate batch: {categories}
+
+Category reference (what a real vendor actually means by each):
+- Tool Depth: "How many years of hands-on X do you have, and where did you use it?"
+- Project Scope: "Walk me through your role on the most relevant project."
+- Availability: notice period
+- Rate: rate expectations / rate justification
+- Work Authorization: visa status (ask generically, e.g. "What's your current work authorization
   status?" - never assume or state a specific status since the resume may not say)
-- Relocation/remote preference
-- Gaps or transitions between roles, if any are visible in the resume
-- Why looking to move / why this opportunity
+- Relocation: relocation/remote preference
+- Gaps: gaps or transitions between roles, if any are visible in the resume
+- Motivation: why looking to move / why this opportunity
 
 For EACH question, write the ANSWER the way the CANDIDATE should actually say it out loud on the
 call - you ARE the candidate, speaking naturally in first person, never an AI describing someone
@@ -323,20 +324,21 @@ even in the picture. Below is the candidate's RESUME.
 RESUME:
 {resume_text}
 
-Generate {num_questions} realistic vendor screening questions a staffing vendor would ask about THIS
-candidate based on their resume alone, drawn from the categories a real vendor actually asks before
-submission - mix categories naturally, don't do them in a fixed order:
-- Tool/technology depth ("How many years of hands-on X do you have, and where did you use it?") -
-  pick the 2-3 tools/technologies that show up MOST prominently across the resume, since those are
-  what a vendor is most likely to probe on any call regardless of which client role comes up.
-- Project scope and ownership ("Walk me through your role on your most significant project.")
-- Availability and notice period
-- Rate expectations / rate justification
-- Work authorization / visa status (ask generically, e.g. "What's your current work authorization
+Write EXACTLY ONE realistic vendor screening question for EACH of these categories, and nothing
+else - do not write about any other category, it's covered in a separate batch: {categories}
+
+Category reference (what a real vendor actually means by each):
+- Tool Depth: "How many years of hands-on X do you have, and where did you use it?" - pick the
+  most prominent tool/technology in the resume for this one, since that's what a vendor is most
+  likely to probe on any call regardless of which client role comes up.
+- Project Scope: "Walk me through your role on your most significant project."
+- Availability: notice period
+- Rate: rate expectations / rate justification
+- Work Authorization: visa status (ask generically, e.g. "What's your current work authorization
   status?" - never assume or state a specific status since the resume may not say)
-- Relocation/remote preference
-- Gaps or transitions between roles, if any are visible in the resume
-- Why looking for a new opportunity right now
+- Relocation: relocation/remote preference
+- Gaps: gaps or transitions between roles, if any are visible in the resume
+- Motivation: why looking for a new opportunity right now
 
 For EACH question, write the ANSWER the way the CANDIDATE should actually say it out loud on the
 call - you ARE the candidate, speaking naturally in first person, never an AI describing someone
@@ -370,6 +372,18 @@ ANSWER: <the candidate's confident, resume-grounded answer, 60-140 words>
 Begin now:"""
 
 
+# All 8 categories a real vendor screening call draws from - see VENDOR_QA_TEMPLATE/
+# GENERIC_VENDOR_QA_TEMPLATE's "category reference" for what each one means.
+VENDOR_QA_CATEGORIES = [
+    "Tool Depth", "Project Scope", "Availability", "Rate",
+    "Work Authorization", "Relocation", "Gaps", "Motivation",
+]
+# How many categories go in a single LLM call - see generate_vendor_qa's docstring. Small enough
+# that the full resume (+ JD, if any) plus this many questions' worth of answers stays well under
+# Groq's 12,000-tokens-per-request ceiling regardless of resume length.
+QA_BATCH_SIZE = 3
+
+
 def generate_vendor_qa(resume_text: str, jd_text: str = "", provider: str = "groq", num_questions: int = 8):
     """Returns (items: list[dict], truncated: bool). Each item has category/question/answer.
 
@@ -377,21 +391,53 @@ def generate_vendor_qa(resume_text: str, jd_text: str = "", provider: str = "gro
     (original behavior). Without one, this generates the same category set straight from the
     resume alone - the common case, since a real vendor screening call usually happens before any
     specific JD is even shared, and requiring a JD paste for every sync was unnecessary friction
-    for the core "know your resume cold" use case."""
+    for the core "know your resume cold" use case.
+
+    BATCHED BY CATEGORY - this used to be one single call asking for all N questions at once,
+    which was slow (one big sequential generation) and shared the same truncation risk as the old
+    single-call Tool Sync. Splitting the 8 fixed categories into small batches (run concurrently)
+    fixes both: each batch's prompt only asks for a few questions, so it generates faster and
+    never gets close to the token ceiling, and running batches in parallel means the total wall
+    time is closer to ONE batch's time, not all of them added up. Assigning each batch a fixed,
+    non-overlapping set of categories (rather than letting each batch pick "naturally") is what
+    makes this safe to parallelize without risking two batches both writing a "Rate" question."""
+    categories = VENDOR_QA_CATEGORIES[:max(1, min(num_questions, len(VENDOR_QA_CATEGORIES)))]
+    batches = [categories[i:i + QA_BATCH_SIZE] for i in range(0, len(categories), QA_BATCH_SIZE)]
+
+    def _run_batch(batch_categories):
+        return _generate_vendor_qa_batch(resume_text, jd_text, batch_categories, provider)
+
+    items = []
+    truncated = False
+    with ThreadPoolExecutor(max_workers=min(4, len(batches))) as executor:
+        for batch_items, batch_truncated in executor.map(_run_batch, batches):
+            items.extend(batch_items)
+            truncated = truncated or batch_truncated
+    return items, truncated
+
+
+def _generate_vendor_qa_batch(resume_text: str, jd_text: str, categories: list[str], provider: str):
+    """One batch - see generate_vendor_qa's docstring. Returns (items: list[dict], truncated: bool)
+    for just these categories."""
     # Same Groq 12,000-tokens-per-request ceiling applies here as generate_tool_breakdown above
     # (see that function's comment) - this call also sends the FULL resume text as input, plus
-    # the JD on top, so max_tokens needs real headroom under 12,000 rather than being pushed to
-    # the daily-budget ceiling alone. Pulled back from 4500 as a precaution before it fails the
-    # same way on a long resume + long JD.
-    llm = get_llm(provider=provider, temperature=0.4, max_tokens=3200)
+    # the JD on top. Batching by category (see generate_vendor_qa) is what keeps this safely under
+    # the ceiling regardless of how many total questions are requested.
+    llm = get_llm(provider=provider, temperature=0.4, max_tokens=1600)
+    categories_str = ", ".join(categories)
     if jd_text and jd_text.strip():
         prompt = ChatPromptTemplate.from_template(VENDOR_QA_TEMPLATE)
-        messages = prompt.format_messages(resume_text=resume_text, jd_text=jd_text, num_questions=num_questions)
+        messages = prompt.format_messages(resume_text=resume_text, jd_text=jd_text, categories=categories_str)
     else:
         prompt = ChatPromptTemplate.from_template(GENERIC_VENDOR_QA_TEMPLATE)
-        messages = prompt.format_messages(resume_text=resume_text, num_questions=num_questions)
+        messages = prompt.format_messages(resume_text=resume_text, categories=categories_str)
     result, truncated = invoke_and_check_truncation(llm, messages)
     items = _parse_vendor_qa(result)
+    if not items:
+        # Same visibility fix as Tool Sync's batches - see that code's comment for why this
+        # matters: an empty parse currently means these categories' questions just don't show up,
+        # with nothing in the logs explaining why.
+        print(f"[resume_sync] Vendor Q&A batch parse failed for categories={categories} (provider={provider}). Raw model output was:\n{result[:3000]}")
     return items, truncated
 
 
